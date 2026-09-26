@@ -1,0 +1,161 @@
+# 서식 정의. 항목마다 필수 여부, 기본값, 사건에서 가져올 값을 정한다.
+# 문구는 대법원 공개 양식의 일반적인 구성을 참고해 만들었다. 공식 양식과 한 글자씩 대조하지 않았으므로
+# 실제 제출 전에 전자소송 양식과 비교한다.
+#
+# 항목 속성
+# - key: 템플릿에서 쓰는 이름
+# - type: text | date | select | number | textarea
+# - required: 비어 있으면 초안을 만들지 않고 묻는다
+# - required_if: 다른 항목 값이 이것일 때만 필수 (예: { method = "새 주소로 송달" })
+# - from_case: 사건에서 채울 값 (court, case_number, case_name, plaintiffs, defendants, judgment_date)
+# - default: 기본값. "today"는 오늘 날짜
+# - allow_later: 모르면 "나중에 입력"을 골라 빈칸으로 둘 수 있다
+# - remember: 입력한 값을 사건에 저장해 다음 서식에서 다시 묻지 않는다
+
+[[common]]
+key = "court"
+label = "법원"
+type = "text"
+required = true
+from_case = "court"
+
+[[common]]
+key = "case_number"
+label = "사건번호"
+type = "text"
+required = true
+from_case = "case_number"
+
+[[common]]
+key = "case_name"
+label = "사건명"
+type = "text"
+required = true
+from_case = "case_name"
+
+[[common]]
+key = "plaintiffs"
+label = "원고"
+type = "text"
+required = true
+from_case = "plaintiffs"
+
+[[common]]
+key = "defendants"
+label = "피고"
+type = "text"
+required = true
+from_case = "defendants"
+
+[[common]]
+key = "applicant"
+label = "신청인(지위와 이름)"
+type = "text"
+required = true
+remember = true
+help = "예: 원고 홍길동"
+
+[[common]]
+key = "agent"
+label = "소송대리인"
+type = "text"
+required = false
+remember = true
+help = "예: 법무법인 ○○ 담당변호사 ○○○. 없으면 비워 둡니다."
+
+[[common]]
+key = "filed_on"
+label = "신청일"
+type = "date"
+required = true
+default = "today"
+
+
+[[form]]
+id = "certificate_of_finality"
+name = "확정증명원 신청서"
+template = "certificate_of_finality.docx"
+aliases = ["확정증명원", "확정증명", "판결확정증명원"]
+
+[[form.fields]]
+key = "judgment_date"
+label = "판결 선고일"
+type = "date"
+required = true
+from_case = "judgment_date"
+remember = true
+
+[[form.fields]]
+key = "finality_date"
+label = "판결 확정일"
+type = "date"
+required = true
+allow_later = true
+remember = true
+help = "모르면 '나중에 입력'을 고르세요. 초안에 빈칸으로 남깁니다."
+
+
+[[form]]
+id = "certificate_of_service"
+name = "송달증명원 신청서"
+template = "certificate_of_service.docx"
+aliases = ["송달증명원", "송달증명"]
+
+[[form.fields]]
+key = "served_document"
+label = "송달된 문서"
+type = "select"
+options = ["판결정본", "결정정본", "이행권고결정정본", "화해권고결정정본", "지급명령정본"]
+required = true
+default = "판결정본"
+
+[[form.fields]]
+key = "served_party"
+label = "송달받은 당사자"
+type = "text"
+required = true
+from_case = "defendants"
+help = "예: 피고 김철수"
+
+[[form.fields]]
+key = "copies"
+label = "신청 통수"
+type = "number"
+required = true
+default = "1"
+
+
+[[form]]
+id = "address_correction"
+name = "주소보정서"
+template = "address_correction.docx"
+aliases = ["주소보정서", "주소보정", "주소 보정"]
+
+[[form.fields]]
+key = "target_party"
+label = "송달받을 당사자"
+type = "text"
+required = true
+from_case = "defendants"
+
+[[form.fields]]
+key = "method"
+label = "신청 내용"
+type = "select"
+options = ["새 주소로 송달", "종전 주소로 재송달", "특별송달(야간)", "특별송달(휴일)", "공시송달"]
+required = true
+
+[[form.fields]]
+key = "new_address"
+label = "새 주소"
+type = "textarea"
+required = false
+required_if = { method = "새 주소로 송달" }
+remember = true
+
+[[form.fields]]
+key = "attachments"
+label = "첨부 서류"
+type = "text"
+required = false
+default = "주민등록초본 1통"

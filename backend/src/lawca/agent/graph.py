@@ -1,29 +1,32 @@
 """채팅 요청을 처리하는 LangGraph 그래프.
 
-    START → route ─┬→ document     (PDF 첨부: 규칙으로 보냄)
-                   ├→ query        (조회 에이전트)
-                   ├→ draft        (서식 작성: 다음 단계에서 구현)
-                   ├→ out_of_scope (법률 자문: 고정 응답)
-                   └→ help         (기능 안내)
+    START → route ─┬→ document      (PDF 첨부: 규칙으로 보냄)
+                   ├→ query         (조회 에이전트)
+                   ├→ draft_parse → draft_ask ⟲ → draft_render   (서식 작성, 되묻기)
+                   ├→ out_of_scope  (법률 자문: 고정 응답)
+                   └→ help          (기능 안내)
     각 작업이 끝나면 다음 작업으로 가고, 작업이 없으면 끝난다.
 
-노드는 get_stream_writer()로 화면 이벤트(status·text·card)를 흘려보낸다.
-DB 세션, 모델 등 요청마다 달라지는 것은 config["configurable"]["deps"]로 받는다.
-되묻기(interrupt)와 체크포인터는 서식 작성 단계에서 붙인다.
+- 노드는 get_stream_writer()로 화면 이벤트(status·text·card)를 흘려보낸다.
+- DB 세션, 모델 등 요청마다 달라지는 것은 config["configurable"]["deps"]로 받는다(체크포인트에 저장되지 않음).
+- 되묻기는 interrupt로 멈추고, 체크포인터(thread_id = Job id)로 이어간다. 그래서 상태는 직렬화할 수 있는 값만 둔다.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date
+from functools import cache
 from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, interrupt
 from sqlalchemy.orm import Session
 
+from lawca.agent import draft as drafting
 from lawca.agent.documents import analyze, summarize
 from lawca.agent.llm import ChatModel, Turn, with_fallback
 from lawca.agent.query_agent import run_query
@@ -31,6 +34,9 @@ from lawca.agent.router import route_text
 from lawca.api.schemas import DocumentOut
 from lawca.db.models import File
 from lawca.extraction.gemini import ExtractionError, Extractor, ModelUnavailableError
+
+GRAPH_VERSION = "2"
+"""노드 구성을 바꾸면 올린다. 멈춰 있던 작업의 체크포인트가 새 그래프와 맞는지 판단하는 데 쓴다."""
 
 
 class ModelsNotConfigured(RuntimeError):
@@ -45,14 +51,17 @@ class Deps:
     make_extractor: Callable[[], Extractor]
     on_document: Callable[[DocumentOut], str | None]
     make_models: Callable[[], list[ChatModel]]
+    job_id: Any = None
 
 
-class ChatState(TypedDict):
+class ChatState(TypedDict, total=False):
     message: str
     file_ids: list[str]
-    history: list[Turn]
+    history: list[dict[str, str]]
+    """[{"role": "user" | "model", "text": ...}]"""
     tasks: list[dict[str, str]]
     index: int
+    draft: dict[str, Any] | None
 
 
 HELP_TEXT = (
@@ -60,8 +69,8 @@ HELP_TEXT = (
     "- **법원 문서 처리**: 보정명령, 판결문, 결정문, 지급명령 PDF를 첨부하면 내용을 읽고, 송달일을 받아 기한을 계산하고, 할 일을 정리합니다.\n"
     "- **기한 조회**: \"이번 주 기한 알려줘\", \"2026가단51234 기한은?\"\n"
     "- **사건 찾기**: \"홍길동 사건 찾아줘\"\n"
-    "- **만료일 계산**: \"9월 15일에 판결문을 받았으면 항소기한은?\"\n\n"
-    "서식 작성은 준비 중입니다."
+    "- **만료일 계산**: \"9월 15일에 판결문을 받았으면 항소기한은?\"\n"
+    "- **서식 작성**: 확정증명원 신청서, 송달증명원 신청서, 주소보정서. 예: \"2026가단51234 확정증명원 신청서 만들어 줘\""
 )
 
 OUT_OF_SCOPE_TEXT = (
@@ -69,18 +78,21 @@ OUT_OF_SCOPE_TEXT = (
     "대신 관련 기한과 사건 기록을 조회해 드릴 수 있습니다."
 )
 
-DRAFT_TEXT = (
-    "서식 작성은 아직 준비 중입니다. 다음 단계에서 필요한 정보를 되물어 가며 초안을 만들어 드리도록 할 예정입니다.\n\n"
-    "지금은 법원 문서를 첨부해 기한을 정리하거나, 기한과 사건을 조회할 수 있습니다."
-)
-
 
 def _deps(config: RunnableConfig) -> Deps:
     return config["configurable"]["deps"]
 
 
+def _history(state: ChatState) -> list[Turn]:
+    return [Turn(h["role"], h["text"]) for h in state.get("history", [])]  # type: ignore[arg-type]
+
+
 def _separator(state: ChatState) -> str:
     return "\n\n" if state["index"] > 0 else ""
+
+
+def _task(state: ChatState) -> dict[str, str]:
+    return state["tasks"][state["index"]]
 
 
 def route(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
@@ -93,7 +105,7 @@ def route(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
     write({"type": "status", "id": "route", "label": "요청 파악 중", "state": "running"})
     try:
         models = _deps(config).make_models()
-        tasks = with_fallback(models, lambda m: route_text(m, state["message"], state["history"]))
+        tasks = with_fallback(models, lambda m: route_text(m, state["message"], _history(state)))
     except ModelsNotConfigured as exc:
         write({"type": "status", "id": "route", "label": "요청 파악 실패", "state": "error"})
         write({"type": "text", "delta": f"글 요청을 처리할 수 없습니다. {exc}"})
@@ -108,10 +120,14 @@ def route(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
     return {"tasks": [t.model_dump() for t in tasks], "index": 0}
 
 
+NODE_FOR_LABEL = {"draft": "draft_parse"}
+
+
 def next_task(state: ChatState) -> str:
     if state["index"] >= len(state["tasks"]):
         return END
-    return state["tasks"][state["index"]]["label"]
+    label = _task(state)["label"]
+    return NODE_FOR_LABEL.get(label, label)
 
 
 def document(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
@@ -146,22 +162,75 @@ def document(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
 def query(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
     write = get_stream_writer()
     deps = _deps(config)
-    task = state["tasks"][state["index"]]
     if state["index"] > 0:
         write({"type": "text", "delta": _separator(state)})
     try:
         run_query(
             deps.make_models(),
-            task["request"] or state["message"],
-            state["history"],
+            _task(state)["request"] or state["message"],
+            _history(state),
             deps.session,
             deps.today,
             write,
             step_prefix=f"q{state['index']}",
         )
-    except (ModelUnavailableError, ExtractionError) as exc:
+    except (ModelUnavailableError, ExtractionError, ModelsNotConfigured) as exc:
         write({"type": "text", "delta": f"조회하지 못했습니다. {exc} 잠시 뒤 다시 시도해 주세요."})
     return {"index": state["index"] + 1}
+
+
+# 서식 작성
+
+
+def draft_parse(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
+    write = get_stream_writer()
+    deps = _deps(config)
+    step = f"draft-{state['index']}"
+    write({"type": "status", "id": step, "label": "서식 요청 파악 중", "state": "running"})
+    try:
+        models = deps.make_models()
+    except ModelsNotConfigured:
+        models = []  # 모델 없이도 서식 이름·사건번호는 규칙으로 찾는다
+    request = _task(state)["request"] or state["message"]
+    draft = drafting.parse_request(models, request, _history(state), deps.session, deps.today)
+    form = drafting.load_forms().get(draft.get("form_id") or "")
+    label = f"서식 요청 파악: {form.name if form else '서식 미정'}" + (f" · {draft['case_number']}" if draft.get("case_number") else "")
+    write({"type": "status", "id": step, "label": label, "state": "done"})
+    return {"draft": draft}
+
+
+def draft_ask(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
+    """물어볼 것이 있으면 멈추고, 답을 받으면 반영한다. 재개하면 이 노드가 처음부터 다시 실행된다."""
+    deps = _deps(config)
+    draft = state["draft"] or {}
+    question = drafting.build_question(draft, deps.session)
+    if question is None:
+        return {}
+    answers = interrupt(question)
+    return {"draft": drafting.apply_answers(draft, question, answers or {}, deps.session, deps.today)}
+
+
+def after_ask(state: ChatState, config: RunnableConfig) -> str:
+    return "draft_ask" if drafting.build_question(state["draft"] or {}, _deps(config).session) else "draft_render"
+
+
+def draft_render(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
+    write = get_stream_writer()
+    deps = _deps(config)
+    step = f"render-{state['index']}"
+    write({"type": "status", "id": step, "label": "초안 만드는 중", "state": "running"})
+    card = drafting.save(state["draft"] or {}, deps.session, deps.job_id)
+    write({"type": "status", "id": step, "label": f"초안 완성: {card['filename']}", "state": "done"})
+    note = f" 빈칸으로 둔 항목: {', '.join(card['blanks'])}." if card["blanks"] else ""
+    write(
+        {
+            "type": "text",
+            "delta": f"{_separator(state)}**{card['form_name']}** 초안을 만들었습니다.{note} "
+            "내려받아 내용을 확인하고, 담당 변호사 검토 후 제출하세요.",
+        }
+    )
+    write({"type": "card", "card": card})
+    return {"index": state["index"] + 1, "draft": None}
 
 
 def _fixed(text: str) -> Callable[[ChatState], dict[str, Any]]:
@@ -172,20 +241,53 @@ def _fixed(text: str) -> Callable[[ChatState], dict[str, Any]]:
     return node
 
 
-def build_graph():  # noqa: ANN201
+def build_graph(checkpointer: Any = None):  # noqa: ANN201
     graph = StateGraph(ChatState)
     graph.add_node("route", route)
     graph.add_node("document", document)
     graph.add_node("query", query)
-    graph.add_node("draft", _fixed(DRAFT_TEXT))
+    graph.add_node("draft_parse", draft_parse)
+    graph.add_node("draft_ask", draft_ask)
+    graph.add_node("draft_render", draft_render)
     graph.add_node("out_of_scope", _fixed(OUT_OF_SCOPE_TEXT))
     graph.add_node("help", _fixed(HELP_TEXT))
-    routes = ["document", "query", "draft", "out_of_scope", "help", END]
+    routes = ["document", "query", "draft_parse", "out_of_scope", "help", END]
     graph.add_edge(START, "route")
     graph.add_conditional_edges("route", next_task, routes)
-    for name in ("document", "query", "draft", "out_of_scope", "help"):
+    for name in ("document", "query", "draft_render", "out_of_scope", "help"):
         graph.add_conditional_edges(name, next_task, routes)
-    return graph.compile()
+    graph.add_edge("draft_parse", "draft_ask")
+    graph.add_conditional_edges("draft_ask", after_ask, ["draft_ask", "draft_render"])
+    return graph.compile(checkpointer=checkpointer)
 
 
-GRAPH = build_graph()
+@cache
+def graph_for(checkpointer: Any):  # noqa: ANN201
+    return build_graph(checkpointer)
+
+
+def run(graph: Any, payload: Any, deps: Deps, thread_id: str) -> Iterator[dict[str, Any]]:
+    """그래프를 실행하며 화면 이벤트를 흘려보낸다. 되묻기로 멈추면 {"type": "question"} 이벤트를 낸다."""
+    config = {"configurable": {"deps": deps, "thread_id": thread_id}}
+    for mode, chunk in graph.stream(payload, config, stream_mode=["custom", "updates"]):
+        if mode == "custom":
+            yield chunk
+        elif isinstance(chunk, dict) and "__interrupt__" in chunk:
+            for item in chunk["__interrupt__"]:
+                # question_id로 같은 작업의 이전 질문과 새 질문(예: 잘못 답해 다시 물음)을 구분한다.
+                yield {"type": "question", "question": {**item.value, "question_id": item.id}}
+
+
+def start_input(message: str, file_ids: list[str], history: list[Turn]) -> ChatState:
+    return {
+        "message": message,
+        "file_ids": file_ids,
+        "history": [{"role": t.role, "text": t.text} for t in history],
+        "tasks": [],
+        "index": 0,
+        "draft": None,
+    }
+
+
+def resume_input(answers: dict[str, str]) -> Command:
+    return Command(resume=answers)

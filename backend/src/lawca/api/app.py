@@ -10,14 +10,15 @@ from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from datetime import date, datetime, timezone
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session, sessionmaker
 
-from lawca.agent.graph import Deps, ModelsNotConfigured
+from lawca.agent.graph import GRAPH_VERSION, Deps, ModelsNotConfigured, graph_for
 from lawca.agent.llm import ChatModel, Turn, gemini_models
-from lawca.api.chat import chat_events
+from lawca.api.chat import answer_summary, chat_events, resume_events
 from lawca.api.records import record_out
 from lawca.api.schemas import (
     SERVICE_LABELS,
@@ -30,13 +31,15 @@ from lawca.api.schemas import (
     DeadlineRequest,
     DeadlineStatusUpdate,
     FileOut,
+    JobOut,
     MessageOut,
     PeriodOut,
+    ResumeRequest,
 )
 from lawca.config import Settings, get_settings
 from lawca.db import repo
-from lawca.db.models import Conversation, Deadline, File as FileRow, Message
-from lawca.db.session import get_session_factory
+from lawca.db.models import Conversation, Deadline, File as FileRow, Job, Message
+from lawca.db.session import get_checkpointer, get_session_factory
 from lawca.deadlines import (
     CalendarCoverageError,
     DeadlineResult,
@@ -160,7 +163,10 @@ def file_content(file_id: str, session: DB) -> Response:
     row = repo.get_file(session, file_id)
     if row is None:
         raise HTTPException(404, "파일을 찾을 수 없습니다.")
-    return Response(row.data, media_type=row.mime)
+    headers = {}
+    if row.mime != "application/pdf":
+        headers["Content-Disposition"] = f"attachment; filename*=UTF-8''{quote(row.name)}"
+    return Response(row.data, media_type=row.mime, headers=headers)
 
 
 # 대화
@@ -223,29 +229,29 @@ def _history(conversation: Conversation) -> list[Turn]:
     return turns[-HISTORY_TURNS:]
 
 
-@app.post("/api/chat")
-def chat(
-    req: ChatRequest,
-    factory: SessionFactory,
-    make_extractor: Annotated[Callable[[], Extractor], Depends(get_extractor_factory)],
-    make_models: Annotated[Callable[[], list[ChatModel]], Depends(get_models_factory)],
+ExtractorFactory = Annotated[Callable[[], Extractor], Depends(get_extractor_factory)]
+ModelsFactory = Annotated[Callable[[], list[ChatModel]], Depends(get_models_factory)]
+Checkpointer = Annotated[Any, Depends(get_checkpointer)]
+
+
+def _respond(
+    factory: sessionmaker[Session],
+    conversation_id: uuid.UUID,
+    job_id: uuid.UUID,
+    make_events: Callable[[Deps], Iterator[dict[str, Any]]],
+    make_extractor: Callable[[], Extractor],
+    make_models: Callable[[], list[ChatModel]],
 ) -> StreamingResponse:
-    """사용자 메시지를 저장하고 답변을 SSE로 흘려보낸다. 답변은 끝나거나 중지되면 저장한다."""
-    with factory() as session:
-        conversation = repo.get_conversation(session, req.conversation_id)
-        if conversation is None:
-            raise HTTPException(404, "대화를 찾을 수 없습니다.")
-        history = _history(conversation)
-        files = [f for f in (repo.get_file(session, fid) for fid in req.file_ids) if f is not None]
-        repo.add_message(session, conversation, "user", req.message, files=files)
-        session.commit()
+    """그래프 이벤트를 SSE로 흘려보내고, 끝나면 답변 메시지와 작업(Job) 상태를 저장한다.
+
+    되묻기로 멈추면 질문을 'question' 카드로 바꿔 보내고 작업을 waiting으로 둔다.
+    """
 
     def stream() -> Iterator[str]:
         reply = _Reply()
         state = "done"
+        question: dict[str, Any] | None = None
         with factory() as session:
-            conversation = repo.get_conversation(session, req.conversation_id)
-            assert conversation is not None
 
             def on_document(result: Any) -> str:
                 document = repo.save_document(session, result)
@@ -259,9 +265,13 @@ def chat(
                 make_extractor=make_extractor,
                 on_document=on_document,
                 make_models=make_models,
+                job_id=job_id,
             )
             try:
-                for event in chat_events(req, deps, history):
+                for event in make_events(deps):
+                    if event["type"] == "question":
+                        question = event["question"]
+                        event = {"type": "card", "card": {"kind": "question", "job_id": str(job_id), **question}}
                     reply.apply(event)
                     yield _sse(event)
             except GeneratorExit:
@@ -271,13 +281,95 @@ def chat(
                 state = "error"
                 raise
             finally:
+                session.rollback()
+                conversation = session.get(Conversation, conversation_id)
+                assert conversation is not None
                 repo.add_message(
                     session, conversation, "assistant", reply.text, steps=reply.steps, cards=reply.cards, state=state
                 )
+                job = session.get(Job, job_id)
+                assert job is not None
+                waiting = question is not None and state == "done"
+                repo.finish_job(session, job, "waiting" if waiting else state, question if waiting else None)
                 session.commit()
 
     return StreamingResponse(
         stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
+
+
+@app.post("/api/chat")
+def chat(
+    req: ChatRequest,
+    factory: SessionFactory,
+    make_extractor: ExtractorFactory,
+    make_models: ModelsFactory,
+    checkpointer: Checkpointer,
+) -> StreamingResponse:
+    """사용자 메시지를 저장하고 답변을 SSE로 흘려보낸다. 답변은 끝나거나 중지되면 저장한다."""
+    with factory() as session:
+        conversation = repo.get_conversation(session, req.conversation_id)
+        if conversation is None:
+            raise HTTPException(404, "대화를 찾을 수 없습니다.")
+        history = _history(conversation)
+        files = [f for f in (repo.get_file(session, fid) for fid in req.file_ids) if f is not None]
+        repo.add_message(session, conversation, "user", req.message, files=files)
+        job = repo.create_job(session, conversation.id, GRAPH_VERSION)
+        session.commit()
+        conversation_id, job_id = conversation.id, job.id
+
+    graph = graph_for(checkpointer)
+    return _respond(
+        factory,
+        conversation_id,
+        job_id,
+        lambda deps: chat_events(req, deps, history, graph, str(job_id)),
+        make_extractor,
+        make_models,
+    )
+
+
+@app.get("/api/jobs/{job_id}")
+def job_status(job_id: str, session: DB) -> JobOut:
+    job = repo.get_job(session, job_id)
+    if job is None:
+        raise HTTPException(404, "작업을 찾을 수 없습니다.")
+    return JobOut(id=str(job.id), status=job.status, question=job.question)
+
+
+@app.post("/api/jobs/{job_id}/resume")
+def resume_job(
+    job_id: str,
+    req: ResumeRequest,
+    factory: SessionFactory,
+    make_extractor: ExtractorFactory,
+    make_models: ModelsFactory,
+    checkpointer: Checkpointer,
+) -> StreamingResponse:
+    """되묻기에 답하고 멈춘 곳에서 이어간다. 답은 사용자 메시지로 대화에 남긴다."""
+    with factory() as session:
+        job = repo.get_job(session, job_id)
+        if job is None:
+            raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        if job.status != "waiting" or job.question is None:
+            raise HTTPException(409, "이미 답했거나 끝난 작업입니다.")
+        if job.graph_version != GRAPH_VERSION:
+            raise HTTPException(409, "프로그램이 바뀌어 이 작업을 이어갈 수 없습니다. 요청을 다시 보내 주세요.")
+        conversation = session.get(Conversation, job.conversation_id)
+        assert conversation is not None
+        repo.add_message(session, conversation, "user", answer_summary(job.question, req.answers))
+        repo.finish_job(session, job, "running")
+        session.commit()
+        conversation_id, parsed_job_id = conversation.id, job.id
+
+    graph = graph_for(checkpointer)
+    return _respond(
+        factory,
+        conversation_id,
+        parsed_job_id,
+        lambda deps: resume_events(req.answers, deps, graph, str(parsed_job_id)),
+        make_extractor,
+        make_models,
     )
 
 

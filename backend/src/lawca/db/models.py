@@ -1,7 +1,7 @@
 """DB 테이블 정의.
 
-지금 저장하는 것: 대화·메시지, 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 감사 기록.
-LangGraph 작업(Job)은 해당 기능을 만들 때 추가한다.
+지금 저장하는 것: 대화·메시지, 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 서식 초안,
+작업(Job, 되묻기로 멈춘 LangGraph 실행), 감사 기록.
 """
 
 from __future__ import annotations
@@ -101,6 +101,8 @@ class Case(Timestamped, Base):
     case_number: Mapped[str] = mapped_column(String(40), unique=True)
     court: Mapped[str | None] = mapped_column(String(100))
     case_name: Mapped[str | None] = mapped_column(String(200))
+    facts: Mapped[dict[str, Any]] = mapped_column(default=dict, server_default="{}")
+    """서식을 만들며 입력받은 값(판결 확정일 등). 다음 서식에서 다시 묻지 않는다."""
 
     parties: Mapped[list[Party]] = relationship(back_populates="case", cascade="all, delete-orphan")
     documents: Mapped[list[Document]] = relationship(back_populates="case")
@@ -166,6 +168,44 @@ class Deadline(Timestamped, Base):
     status_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     document: Mapped[Document] = relationship()
+    case: Mapped[Case | None] = relationship()
+
+
+class Job(Timestamped, Base):
+    """채팅 요청 하나를 처리하는 LangGraph 실행. id가 체크포인터의 thread_id다.
+
+    상태의 기준은 이 테이블이다. 체크포인트는 멈춘 곳에서 이어가는 데만 쓴다.
+    """
+
+    __tablename__ = "jobs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_uuid)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="running", index=True)
+    """running(진행 중) | waiting(되묻기 답을 기다림) | done(완료) | error(오류) | stopped(중지)."""
+    question: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    """waiting일 때 사용자에게 물은 내용."""
+    graph_version: Mapped[str] = mapped_column(String(20))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class Draft(Timestamped, Base):
+    """서식 초안. 사람이 검토하고 제출한다."""
+
+    __tablename__ = "drafts"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_uuid)
+    case_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("cases.id"), index=True)
+    form_id: Mapped[str] = mapped_column(String(60))
+    file_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("files.id"))
+    values: Mapped[dict[str, Any]] = mapped_column()
+    blanks: Mapped[list[Any]] = mapped_column(default=list)
+    """'나중에 입력'으로 빈칸으로 둔 항목 이름."""
+    job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id"))
+
+    file: Mapped[File] = relationship()
     case: Mapped[Case | None] = relationship()
 
 

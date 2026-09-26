@@ -5,6 +5,7 @@ import {
   getHealth,
   listConversations,
   streamChat,
+  streamResume,
   uploadFile,
   type ChatEvent,
   type ConversationSummary,
@@ -149,26 +150,34 @@ export default function App() {
       }
     }
 
-    const now = new Date().toISOString()
-    const user: Message = { id: newId(), role: 'user', text, attachments: ready, steps: [], cards: [], state: 'done', createdAt: now }
-    const reply: Message = { id: newId(), role: 'assistant', text: '', attachments: [], steps: [], cards: [], state: 'streaming', createdAt: now }
     const target = conversationId
-    setThreads((all) => ({ ...all, [target]: [...(all[target] ?? []), user, reply] }))
     setDraft('')
+    await converse(target, text, ready, (onEvent, signal) =>
+      streamChat({ conversation_id: target, message: text, file_ids: ready.map((a) => a.id!) }, onEvent, signal),
+    )
+  }
+
+  // 사용자 메시지와 답변 자리를 대화에 붙이고, 답변 이벤트를 받아 채운다.
+  async function converse(
+    conversationId: string,
+    text: string,
+    files: Attachment[],
+    open: (onEvent: (event: ChatEvent) => void, signal: AbortSignal) => Promise<void>,
+  ) {
+    const now = new Date().toISOString()
+    const user: Message = { id: newId(), role: 'user', text, attachments: files, steps: [], cards: [], state: 'done', createdAt: now }
+    const reply: Message = { id: newId(), role: 'assistant', text: '', attachments: [], steps: [], cards: [], state: 'streaming', createdAt: now }
+    setThreads((all) => ({ ...all, [conversationId]: [...(all[conversationId] ?? []), user, reply] }))
     setAttachments((all) => all.filter((a) => a.state === 'uploading'))
 
     const controller = new AbortController()
     aborts.current.set(reply.id, controller)
     try {
-      await streamChat(
-        { conversation_id: target, message: text, file_ids: ready.map((a) => a.id!) },
-        (event) => updateMessage(target, reply.id, (m) => applyEvent(m, event)),
-        controller.signal,
-      )
-      updateMessage(target, reply.id, (m) => (m.state === 'streaming' ? { ...m, state: 'done' } : m))
+      await open((event) => updateMessage(conversationId, reply.id, (m) => applyEvent(m, event)), controller.signal)
+      updateMessage(conversationId, reply.id, (m) => (m.state === 'streaming' ? { ...m, state: 'done' } : m))
     } catch (e) {
       const stopped = controller.signal.aborted
-      updateMessage(target, reply.id, (m) => ({
+      updateMessage(conversationId, reply.id, (m) => ({
         ...m,
         state: stopped ? 'stopped' : 'error',
         steps: m.steps.map((s) => (s.state === 'running' ? { ...s, state: stopped ? 'done' : 'error' } : s)),
@@ -178,6 +187,12 @@ export default function App() {
       aborts.current.delete(reply.id)
       refreshList()
     }
+  }
+
+  // 되묻기에 답한다. 답은 사용자 메시지로 남고 이어지는 답변이 흘러나온다.
+  async function answer(jobId: string, answers: Record<string, string>, summary: string) {
+    if (!activeId || streaming) throw new Error('응답이 끝난 뒤에 입력해 주세요.')
+    await converse(activeId, summary, [], (onEvent, signal) => streamResume(jobId, answers, onEvent, signal))
   }
 
   function stop() {
@@ -286,6 +301,7 @@ export default function App() {
                     setView('deadlines')
                     setPreview(null)
                   }}
+                  onAnswer={answer}
                 />
               ))}
               <div ref={threadEnd} />

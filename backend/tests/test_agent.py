@@ -131,7 +131,10 @@ def test_multiple_tasks_run_in_order(client, confirmed):  # noqa: F811
     )
     events = chat(client, new_conversation(client), "기한 알려주고 확정증명원도 만들어 줘")
     text = "".join(e["delta"] for e in events if e["type"] == "text")
-    assert text.startswith("조회 결과입니다.") and "서식 작성은 아직 준비 중" in text
+    assert text.startswith("조회 결과입니다.")
+    # 두 번째 작업(서식)은 사건을 몰라서 되묻고 멈춘다
+    question = [e["card"] for e in events if e["type"] == "card" and e["card"]["kind"] == "question"][0]
+    assert question["stage"] == "case"
 
 
 def test_busy_model_falls_back_to_next(client):  # noqa: F811

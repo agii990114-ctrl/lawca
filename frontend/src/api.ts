@@ -79,11 +79,47 @@ export interface CaseSummary {
   }[]
 }
 
+export interface QuestionField {
+  key: string
+  label: string
+  type: 'text' | 'date' | 'select' | 'number' | 'textarea'
+  options: string[]
+  default: string | null
+  allow_later: boolean
+  help: string | null
+}
+
+export interface QuestionCardData {
+  job_id: string
+  question_id: string
+  stage: 'form' | 'case' | 'fields'
+  title: string
+  message?: string
+  fields: QuestionField[]
+  errors: string[]
+}
+
+export interface DraftCardData {
+  draft_id: string
+  form_id: string
+  form_name: string
+  file_id: string
+  filename: string
+  size: number
+  case_number: string | null
+  fields: { label: string; value: string }[]
+  blanks: string[]
+}
+
+export const LATER = '__later__'
+
 export type Card =
   | ({ kind: 'document' } & DocumentResult)
   | { kind: 'deadlines'; title: string; items: DeadlineRecord[] }
   | { kind: 'cases'; title: string; items: CaseSummary[] }
   | ({ kind: 'deadline_calc'; label: string } & DeadlineResult)
+  | ({ kind: 'question' } & QuestionCardData)
+  | ({ kind: 'draft' } & DraftCardData)
 
 export interface DeadlineResult {
   event_date: string
@@ -258,17 +294,7 @@ export function uploadFile(file: File, onProgress: (ratio: number) => void): Pro
 }
 
 // 서버가 보내는 SSE(data: {...}\n\n)를 읽어 이벤트마다 onEvent를 부른다.
-export async function streamChat(
-  req: { conversation_id: string; message: string; file_ids: string[] },
-  onEvent: (event: ChatEvent) => void,
-  signal: AbortSignal,
-): Promise<void> {
-  const res = await fetch('/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
-    signal,
-  })
+async function readEvents(res: Response, onEvent: (event: ChatEvent) => void): Promise<void> {
   if (!res.ok || !res.body) throw new Error(await errorMessage(res))
   const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
   let buffer = ''
@@ -286,5 +312,44 @@ export async function streamChat(
     }
   }
 }
+
+export async function streamChat(
+  req: { conversation_id: string; message: string; file_ids: string[] },
+  onEvent: (event: ChatEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  return readEvents(
+    await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+      signal,
+    }),
+    onEvent,
+  )
+}
+
+export const getJob = (id: string) =>
+  getJson<{ id: string; status: string; question: { question_id?: string } | null }>(`/api/jobs/${id}`)
+
+// 되묻기에 답하고 이어지는 답변을 SSE로 받는다.
+export async function streamResume(
+  jobId: string,
+  answers: Record<string, string>,
+  onEvent: (event: ChatEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  return readEvents(
+    await fetch(`/api/jobs/${jobId}/resume`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answers }),
+      signal,
+    }),
+    onEvent,
+  )
+}
+
+export const downloadUrl = (id: string) => `/api/files/${id}/content`
 
 export const fileUrl = (id: string, page = 1) => `/api/files/${id}/content#page=${page}`

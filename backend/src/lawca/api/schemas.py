@@ -171,3 +171,13 @@ class DeadlineRecordOut(BaseModel):
 
 class DeadlineStatusUpdate(BaseModel):
     status: Literal["confirmed", "done", "cancelled"]
+
+
+class ResumeRequest(BaseModel):
+    answers: dict[str, str]
+
+
+class JobOut(BaseModel):
+    id: str
+    status: str
+    question: dict[str, Any] | None

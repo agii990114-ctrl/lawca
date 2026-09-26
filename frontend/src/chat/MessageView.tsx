@@ -2,6 +2,7 @@ import Markdown from 'react-markdown'
 import { formatTime } from '../format'
 import DocumentCard from './DocumentCard'
 import FileCard from './FileCard'
+import { DraftCard, QuestionCard, type Answer } from './FormCards'
 import { CaseListCard, DeadlineCalcCard, DeadlineListCard } from './QueryCards'
 import type { Attachment, Message, Step } from './types'
 
@@ -21,10 +22,12 @@ export default function MessageView({
   message,
   onOpenFile,
   onShowDeadlines,
+  onAnswer,
 }: {
   message: Message
   onOpenFile: (fileId: string, name: string, page?: number) => void
   onShowDeadlines: () => void
+  onAnswer: Answer
 }) {
   if (message.role === 'user') {
     const open = (a: Attachment) => a.id && onOpenFile(a.id, a.name)
@@ -97,6 +100,10 @@ export default function MessageView({
               return <CaseListCard key={i} title={card.title} items={card.items} onOpenFile={onOpenFile} />
             case 'deadline_calc':
               return <DeadlineCalcCard key={i} result={card} />
+            case 'question':
+              return <QuestionCard key={card.question_id ?? `${i}-${card.job_id}`} data={card} onAnswer={onAnswer} />
+            case 'draft':
+              return <DraftCard key={card.draft_id} data={card} />
             default:
               return null
           }

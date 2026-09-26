@@ -1,0 +1,113 @@
+"""서식 DOCX 템플릿(docxtpl)을 만든다. 결과는 src/lawca/forms/data/*.docx로 저장해 커밋한다.
+
+법인이 쓰던 양식으로 바꾸고 싶으면 같은 자리표시자({{ case_number }} 등)를 넣은 DOCX로 파일을 바꾸면 된다.
+
+사용법: uv run python scripts/make_form_templates.py
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
+from docx.shared import Pt
+
+OUT = Path(__file__).resolve().parents[1] / "src" / "lawca" / "forms" / "data"
+FONT = "바탕"
+
+
+def new_document(title: str) -> Document:
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = FONT
+    style.font.size = Pt(12)
+    style.element.rPr.rFonts.set(qn("w:eastAsia"), FONT)
+    doc.core_properties.title = title
+    doc.core_properties.author = "lawca"
+    doc.core_properties.comments = "lawca가 만든 초안입니다. 제출 전에 담당 변호사가 검토해야 합니다."
+    heading = doc.add_paragraph()
+    heading.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    run = heading.add_run(" ".join(title))
+    run.bold = True
+    run.font.size = Pt(20)
+    doc.add_paragraph()
+    return doc
+
+
+def line(doc: Document, text: str, *, align: WD_ALIGN_PARAGRAPH | None = None, space_after: int = 6) -> None:
+    paragraph = doc.add_paragraph(text)
+    paragraph.paragraph_format.space_after = Pt(space_after)
+    if align is not None:
+        paragraph.alignment = align
+
+
+def case_block(doc: Document) -> None:
+    line(doc, "사        건    {{ case_number }}  {{ case_name }}")
+    line(doc, "원        고    {{ plaintiffs }}")
+    line(doc, "피        고    {{ defendants }}")
+    doc.add_paragraph()
+
+
+def signature(doc: Document) -> None:
+    doc.add_paragraph()
+    line(doc, "{{ filed_on }}", align=WD_ALIGN_PARAGRAPH.CENTER, space_after=18)
+    line(doc, "신청인  {{ applicant }}  (서명 또는 날인)", align=WD_ALIGN_PARAGRAPH.RIGHT)
+    line(doc, "{%p if agent %}", align=WD_ALIGN_PARAGRAPH.RIGHT)
+    line(doc, "소송대리인  {{ agent }}  (서명 또는 날인)", align=WD_ALIGN_PARAGRAPH.RIGHT)
+    line(doc, "{%p endif %}", align=WD_ALIGN_PARAGRAPH.RIGHT)
+    doc.add_paragraph()
+    heading = doc.add_paragraph()
+    run = heading.add_run("{{ court }}  귀중")
+    run.bold = True
+    run.font.size = Pt(14)
+
+
+def certificate_of_finality() -> Document:
+    doc = new_document("확정증명원")
+    case_block(doc)
+    line(doc, "위 사건에 관하여 {{ judgment_date }} 선고한 판결은 {{ finality_date }} 확정되었음을 증명하여 주시기 바랍니다.")
+    signature(doc)
+    return doc
+
+
+def certificate_of_service() -> Document:
+    doc = new_document("송달증명원")
+    case_block(doc)
+    line(doc, "위 사건에 관하여 {{ served_document }}이(가) {{ served_party }}에게 송달되었음을 증명하여 주시기 바랍니다.")
+    line(doc, "신청 통수  {{ copies }}통")
+    signature(doc)
+    return doc
+
+
+def address_correction() -> Document:
+    doc = new_document("주소보정서")
+    case_block(doc)
+    line(doc, "위 사건에 관하여 {{ target_party }}에 대한 소송서류가 송달되지 않았으므로 다음과 같이 보정합니다.")
+    doc.add_paragraph()
+    line(doc, "신청 내용  {{ method }}")
+    line(doc, "{%p if new_address %}")
+    line(doc, "새 주소  {{ new_address }}")
+    line(doc, "{%p endif %}")
+    line(doc, "{%p if attachments %}")
+    line(doc, "첨부 서류  {{ attachments }}")
+    line(doc, "{%p endif %}")
+    signature(doc)
+    return doc
+
+
+def main() -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    for name, build in [
+        ("certificate_of_finality", certificate_of_finality),
+        ("certificate_of_service", certificate_of_service),
+        ("address_correction", address_correction),
+    ]:
+        path = OUT / f"{name}.docx"
+        build().save(path)
+        print(path)
+
+
+if __name__ == "__main__":
+    main()

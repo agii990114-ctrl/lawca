@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from lawca.api.schemas import DocumentOut
-from lawca.db.models import AuditLog, Case, Conversation, Deadline, Document, File, Message, MessageFile, Party
+from lawca.db.models import AuditLog, Case, Conversation, Deadline, Document, Draft, File, Job, Message, MessageFile, Party
 from lawca.deadlines import DeadlineResult
 from lawca.extraction.validate import CASE_NUMBER
 
@@ -50,14 +50,15 @@ def count_pages(pdf: bytes) -> int | None:
         return None
 
 
-def save_file(session: Session, name: str, data: bytes) -> File:
-    if not data.startswith(b"%PDF"):
+def save_file(session: Session, name: str, data: bytes, mime: str | None = None) -> File:
+    """mime을 주지 않으면 사용자가 올린 파일로 보고 PDF만 받는다. 서버가 만든 파일(초안 등)은 mime을 준다."""
+    if mime is None and not data.startswith(b"%PDF"):
         raise UnsupportedFileError("지금은 PDF 파일만 올릴 수 있습니다.")
     file = File(
         name=name,
-        mime=PDF_MIME,
+        mime=mime or PDF_MIME,
         size=len(data),
-        pages=count_pages(data),
+        pages=count_pages(data) if (mime or PDF_MIME) == PDF_MIME else None,
         sha256=hashlib.sha256(data).hexdigest(),
         data=data,
     )
@@ -328,3 +329,84 @@ def get_case(session: Session, case_number: str) -> Case | None:
         .options(selectinload(Case.parties), selectinload(Case.documents).selectinload(Document.file))
     )
     return session.scalars(query).first()
+
+
+# 작업(Job)
+
+
+def create_job(session: Session, conversation_id: uuid.UUID, graph_version: str) -> Job:
+    job = Job(conversation_id=conversation_id, status="running", graph_version=graph_version)
+    session.add(job)
+    session.flush()
+    return job
+
+
+def get_job(session: Session, job_id: str) -> Job | None:
+    parsed = _parse_id(job_id)
+    return session.get(Job, parsed) if parsed else None
+
+
+def finish_job(session: Session, job: Job, status: str, question: dict[str, Any] | None = None) -> None:
+    job.status = status
+    job.question = question
+    session.flush()
+
+
+# 서식용 사건 값
+
+
+def case_values(case: Case) -> dict[str, str]:
+    """서식의 from_case 항목에 넣을 값."""
+    def names(role: str) -> str:
+        return ", ".join(p.name for p in case.parties if p.role == role)
+
+    judgments = sorted(
+        (d for d in case.documents if d.document_type == "판결" and d.issued_date),
+        key=lambda d: d.issued_date,  # type: ignore[arg-type, return-value]
+    )
+    return {
+        "court": case.court or "",
+        "case_number": case.case_number,
+        "case_name": case.case_name or "",
+        "plaintiffs": names("원고"),
+        "defendants": names("피고"),
+        "judgment_date": judgments[-1].issued_date.isoformat() if judgments else "",  # type: ignore[union-attr]
+    }
+
+
+def remember_facts(session: Session, case: Case, facts: dict[str, str]) -> None:
+    changed = {k: v for k, v in facts.items() if v and case.facts.get(k) != v}
+    if not changed:
+        return
+    case.facts = {**case.facts, **changed}
+    audit(session, "case.facts", "case", case.id, {"set": changed})
+    session.flush()
+
+
+def recent_cases(session: Session, limit: int = 20) -> list[Case]:
+    query = select(Case).options(selectinload(Case.parties)).order_by(Case.created_at.desc()).limit(limit)
+    return list(session.scalars(query))
+
+
+def save_draft(
+    session: Session,
+    *,
+    case: Case | None,
+    form_id: str,
+    file: File,
+    values: dict[str, str],
+    blanks: list[str],
+    job_id: uuid.UUID | None,
+) -> Draft:
+    draft = Draft(
+        case_id=case.id if case else None,
+        form_id=form_id,
+        file_id=file.id,
+        values=values,
+        blanks=blanks,
+        job_id=job_id,
+    )
+    session.add(draft)
+    session.flush()
+    audit(session, "draft.create", "draft", draft.id, {"form_id": form_id, "file_id": str(file.id), "blanks": blanks})
+    return draft

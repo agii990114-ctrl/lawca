@@ -1052,6 +1052,88 @@ button.secondary:disabled {
   color: var(--accent);
 }
 
+/* 되묻기·초안 카드 */
+
+.question-card {
+  border-color: #b9c9e6;
+  background: #f7f9fd !important;
+}
+
+.question-card.answered {
+  opacity: 0.7;
+}
+
+.question-fields {
+  display: grid;
+  gap: 12px;
+  margin: 8px 0 12px;
+}
+
+.question-field {
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+
+.question-label {
+  font-weight: 600;
+}
+
+.question-field textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+
+.later-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.draft-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 420px;
+  padding: 10px 12px;
+  margin: 4px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.draft-file:hover {
+  border-color: var(--accent);
+}
+
+.file-icon.docx {
+  background: #2b579a;
+}
+
+.draft-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  font-size: 14px;
+}
+
+.draft-fields > div {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  padding: 5px 0;
+  border-top: 1px solid var(--border);
+}
+
 /* 미리보기 */
 
 .preview {

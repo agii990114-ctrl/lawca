@@ -6,7 +6,9 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from lawca.api.app import app, get_extractor_factory, get_models_factory
+from langgraph.checkpoint.memory import InMemorySaver
+
+from lawca.api.app import app, get_checkpointer, get_extractor_factory, get_models_factory
 from lawca.db.models import AuditLog, Case, Document, Message
 from lawca.extraction.gemini import ModelUnavailableError
 from lawca.extraction.schema import CourtDocument
@@ -28,9 +30,11 @@ class FakeExtractor:
 def client(db):
     app.dependency_overrides[get_extractor_factory] = lambda: (lambda: FakeExtractor(correction_order()))
     app.dependency_overrides[get_models_factory] = lambda: (lambda: [FakeChatModel(tasks=[("help", "")])])
+    saver = InMemorySaver()  # 테스트마다 새 체크포인터
+    app.dependency_overrides[get_checkpointer] = lambda: saver
     yield TestClient(app)
-    app.dependency_overrides.pop(get_extractor_factory, None)
-    app.dependency_overrides.pop(get_models_factory, None)
+    for dependency in (get_extractor_factory, get_models_factory, get_checkpointer):
+        app.dependency_overrides.pop(dependency, None)
 
 
 def events_of(res) -> list[dict]:
