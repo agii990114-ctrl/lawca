@@ -15,7 +15,7 @@ import PreviewPanel from './chat/PreviewPanel'
 import Sidebar from './chat/Sidebar'
 import { fromServer, newId, type Attachment, type Message, type Preview } from './chat/types'
 
-const EXAMPLES = ['무엇을 할 수 있나요?', '이번 주에 만료되는 기한 알려줘', '확정증명원 신청서 만들어 줘']
+const EXAMPLES = ['이번 주에 만료되는 기한 알려줘', '9월 15일에 판결문을 받았으면 항소기한은?', '무엇을 할 수 있나요?']
 const NO_MESSAGES: Message[] = []
 
 function applyEvent(message: Message, event: ChatEvent): Message {
@@ -271,6 +271,10 @@ export default function App() {
                   key={m.id}
                   message={m}
                   onOpenFile={(fileId, name, page = 1) => setPreview({ fileId, name, page })}
+                  onShowDeadlines={() => {
+                    setView('deadlines')
+                    setPreview(null)
+                  }}
                 />
               ))}
               <div ref={threadEnd} />

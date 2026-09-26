@@ -15,7 +15,10 @@ from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session, sessionmaker
 
+from lawca.agent.graph import Deps, ModelsNotConfigured
+from lawca.agent.llm import ChatModel, Turn, gemini_models
 from lawca.api.chat import chat_events
+from lawca.api.records import record_out
 from lawca.api.schemas import (
     SERVICE_LABELS,
     ChatRequest,
@@ -69,6 +72,17 @@ def get_extractor(settings: Annotated[Settings, Depends(get_settings)]) -> Extra
 def get_extractor_factory(settings: Annotated[Settings, Depends(get_settings)]) -> Callable[[], Extractor]:
     """추출기를 만드는 함수를 넘긴다. 글만 보낸 요청은 키가 없어도 응답하도록 필요할 때 만든다."""
     return lambda: get_extractor(settings)
+
+
+def get_models_factory(settings: Annotated[Settings, Depends(get_settings)]) -> Callable[[], list[ChatModel]]:
+    """라우터·조회 에이전트가 쓸 대화 모델 목록(기본 모델 먼저, 그다음 예비 모델)을 만드는 함수."""
+
+    def make() -> list[ChatModel]:
+        if not settings.gemini_api_key:
+            raise ModelsNotConfigured("Gemini API 키가 설정되지 않았습니다. 레포 루트 .env에 GEMINI_API를 넣으세요.")
+        return gemini_models(settings.gemini_api_key, settings.gemini_models)
+
+    return make
 
 
 def file_out(row: FileRow) -> FileOut:
@@ -185,17 +199,32 @@ def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
+HISTORY_TURNS = 10
+
+
+def _history(conversation: Conversation) -> list[Turn]:
+    """이번 요청 앞의 대화 글. 되묻는 말이나 '그 사건' 같은 지시어를 이해하는 데 쓴다."""
+    turns = [
+        Turn("user" if m.role == "user" else "model", m.text)
+        for m in conversation.messages
+        if m.text.strip() and m.state == "done"
+    ]
+    return turns[-HISTORY_TURNS:]
+
+
 @app.post("/api/chat")
 def chat(
     req: ChatRequest,
     factory: SessionFactory,
     make_extractor: Annotated[Callable[[], Extractor], Depends(get_extractor_factory)],
+    make_models: Annotated[Callable[[], list[ChatModel]], Depends(get_models_factory)],
 ) -> StreamingResponse:
     """사용자 메시지를 저장하고 답변을 SSE로 흘려보낸다. 답변은 끝나거나 중지되면 저장한다."""
     with factory() as session:
         conversation = repo.get_conversation(session, req.conversation_id)
         if conversation is None:
             raise HTTPException(404, "대화를 찾을 수 없습니다.")
+        history = _history(conversation)
         files = [f for f in (repo.get_file(session, fid) for fid in req.file_ids) if f is not None]
         repo.add_message(session, conversation, "user", req.message, files=files)
         session.commit()
@@ -212,10 +241,16 @@ def chat(
                 session.commit()
                 return str(document.id)
 
+            deps = Deps(
+                session=session,
+                today=date.today(),
+                get_file=lambda fid: repo.get_file(session, fid),
+                make_extractor=make_extractor,
+                on_document=on_document,
+                make_models=make_models,
+            )
             try:
-                for event in chat_events(
-                    req, lambda fid: repo.get_file(session, fid), make_extractor, date.today(), on_document
-                ):
+                for event in chat_events(req, deps, history):
                     reply.apply(event)
                     yield _sse(event)
             except GeneratorExit:
@@ -253,34 +288,6 @@ def _compute(rule_id: str | None, period: PeriodOut | None, event_date: date, de
         raise HTTPException(404, str(exc.args[0])) from exc
     except (CalendarCoverageError, ValueError) as exc:
         raise HTTPException(422, str(exc)) from exc
-
-
-def record_out(d: Deadline) -> DeadlineRecordOut:
-    return DeadlineRecordOut(
-        id=str(d.id),
-        status=d.status,  # type: ignore[arg-type]
-        label=d.label,
-        kind=d.kind,
-        rule_id=d.rule_id,
-        period=PeriodOut.of(Period(d.period_amount, UNITS[d.period_unit])),
-        event_date=d.event_date,
-        service_kind=d.service_kind,
-        service_label=SERVICE_LABELS.get(d.service_kind, d.service_kind),
-        count_start=d.count_start,
-        nominal_end=d.nominal_end,
-        deadline=d.deadline,
-        extended_over=d.extended_over,
-        basis=d.basis,
-        warnings=d.warnings,
-        created_at=d.created_at,
-        document_id=str(d.document_id),
-        document_type=d.document.document_type,
-        file_id=str(d.document.file_id),
-        filename=d.document.file.name,
-        case_number=d.case.case_number if d.case else None,
-        court=d.case.court if d.case else None,
-        case_name=d.case.case_name if d.case else None,
-    )
 
 
 def _one(session: Session, deadline_id: uuid.UUID) -> DeadlineRecordOut:

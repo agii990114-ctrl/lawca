@@ -765,7 +765,7 @@ dd {
   gap: 8px;
 }
 
-.done {
+.checklist .done {
   color: var(--muted);
   text-decoration: line-through;
 }
@@ -992,6 +992,64 @@ button.secondary:disabled {
 .warn-dot {
   font-size: 12px;
   color: var(--warning);
+}
+
+/* 조회 결과 카드 */
+
+.mini-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.mini-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+
+.mini-list li:first-child {
+  border-top: 0;
+}
+
+.mini-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.case-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.case-item:first-of-type {
+  border-top: 0;
+}
+
+.case-docs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 2px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* 미리보기 */

@@ -6,10 +6,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from lawca.api.app import app, get_extractor_factory
+from lawca.api.app import app, get_extractor_factory, get_models_factory
 from lawca.db.models import AuditLog, Case, Document, Message
 from lawca.extraction.gemini import ModelUnavailableError
 from lawca.extraction.schema import CourtDocument
+from tests.fakes import FakeChatModel
 from tests.test_extraction import correction_order
 
 
@@ -26,8 +27,10 @@ class FakeExtractor:
 @pytest.fixture
 def client(db):
     app.dependency_overrides[get_extractor_factory] = lambda: (lambda: FakeExtractor(correction_order()))
+    app.dependency_overrides[get_models_factory] = lambda: (lambda: [FakeChatModel(tasks=[("help", "")])])
     yield TestClient(app)
     app.dependency_overrides.pop(get_extractor_factory, None)
+    app.dependency_overrides.pop(get_models_factory, None)
 
 
 def events_of(res) -> list[dict]:
@@ -110,10 +113,10 @@ def test_title_falls_back_to_file_name(client):
     assert client.get("/api/conversations").json()[0]["title"] == "판결문.pdf"
 
 
-def test_chat_text_only_explains_what_is_supported(client):
-    events = chat(client, new_conversation(client), "이번 주 기한 알려줘")
-    assert [e["type"] for e in events] == ["text", "done"]
-    assert "PDF" in events[0]["delta"]
+def test_chat_text_only_goes_through_router(client):
+    events = chat(client, new_conversation(client), "뭘 할 수 있어?")
+    assert [e["type"] for e in events] == ["status", "status", "text", "done"]
+    assert "PDF" in events[2]["delta"]
 
 
 def test_chat_with_unknown_file_asks_to_reupload(client):

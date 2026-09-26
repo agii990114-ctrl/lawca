@@ -26,7 +26,7 @@ class ExtractionError(RuntimeError):
 
 
 class ModelUnavailableError(RuntimeError):
-    """모델 서버가 일시적으로 응답하지 않을 때 발생한다. 잠시 뒤 다시 시도하면 된다."""
+    """모델 서버가 혼잡(503)하거나 사용량 한도(429)에 걸렸을 때 발생한다. 다음 모델로 넘기거나 잠시 뒤 다시 시도한다."""
 
 
 class Extractor(Protocol):
@@ -47,16 +47,18 @@ class GeminiExtractor:
         self.model = models[0]
 
     def extract(self, pdf: bytes) -> CourtDocument:
+        failures: list[ModelUnavailableError] = []
         for model in self._models:
             try:
                 doc = self._extract_with(model, pdf)
-            except ModelUnavailableError:
-                if model == self._models[-1]:
-                    raise
+            except ModelUnavailableError as exc:
+                failures.append(exc)
                 continue
             self.model = model
             return doc
-        raise AssertionError("unreachable")
+        if len(failures) == 1:
+            raise failures[0]
+        raise ModelUnavailableError("모든 모델을 쓸 수 없습니다. " + " / ".join(str(e) for e in failures))
 
     def _extract_with(self, model: str, pdf: bytes) -> CourtDocument:
         try:
@@ -73,6 +75,8 @@ class GeminiExtractor:
         except errors.ServerError as exc:
             raise ModelUnavailableError(f"{model} 서버가 응답하지 않습니다({exc.code}). 잠시 뒤 다시 시도하세요.") from exc
         except errors.ClientError as exc:
+            if exc.code == 429:
+                raise ModelUnavailableError(f"{model} 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세요.") from exc
             raise ExtractionError(f"{model} 요청이 거부되었습니다({exc.code}): {exc.message}") from exc
         if isinstance(response.parsed, CourtDocument):
             return response.parsed

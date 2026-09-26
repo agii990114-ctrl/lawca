@@ -260,9 +260,21 @@ def get_deadline(session: Session, deadline_id: uuid.UUID) -> Deadline | None:
 
 
 def list_deadlines(
-    session: Session, statuses: list[str] | None = None, document_id: str | None = None
+    session: Session,
+    statuses: list[str] | None = None,
+    document_id: str | None = None,
+    *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    case_number: str | None = None,
 ) -> list[Deadline]:
     query = _deadline_query().order_by(Deadline.deadline, Deadline.created_at)
+    if date_from is not None:
+        query = query.where(Deadline.deadline >= date_from)
+    if date_to is not None:
+        query = query.where(Deadline.deadline <= date_to)
+    if case_number:
+        query = query.join(Case, Deadline.case_id == Case.id).where(Case.case_number == re.sub(r"\s+", "", case_number))
     if statuses:
         query = query.where(Deadline.status.in_(statuses))
     if document_id is not None:
@@ -283,3 +295,36 @@ def set_deadline_status(session: Session, deadline_id: str, status: str) -> Dead
     deadline.status_changed_at = datetime.now(timezone.utc)
     session.flush()
     return deadline
+
+
+# 사건 검색
+
+
+def search_cases(session: Session, text: str, limit: int = 20) -> list[Case]:
+    """사건번호·사건명·법원·당사자 이름에 text가 들어간 사건."""
+    pattern = f"%{text.strip()}%"
+    compact = f"%{re.sub(r'\s+', '', text)}%"
+    query = (
+        select(Case)
+        .outerjoin(Party, Party.case_id == Case.id)
+        .where(
+            Case.case_number.ilike(compact)
+            | Case.case_name.ilike(pattern)
+            | Case.court.ilike(pattern)
+            | Party.name.ilike(pattern)
+        )
+        .options(selectinload(Case.parties), selectinload(Case.documents).selectinload(Document.file))
+        .distinct()
+        .order_by(Case.created_at.desc())
+        .limit(limit)
+    )
+    return list(session.scalars(query))
+
+
+def get_case(session: Session, case_number: str) -> Case | None:
+    query = (
+        select(Case)
+        .where(Case.case_number == re.sub(r"\s+", "", case_number))
+        .options(selectinload(Case.parties), selectinload(Case.documents).selectinload(Document.file))
+    )
+    return session.scalars(query).first()

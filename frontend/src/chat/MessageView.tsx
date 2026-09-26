@@ -2,6 +2,7 @@ import Markdown from 'react-markdown'
 import { formatTime } from '../format'
 import DocumentCard from './DocumentCard'
 import FileCard from './FileCard'
+import { CaseListCard, DeadlineCalcCard, DeadlineListCard } from './QueryCards'
 import type { Attachment, Message, Step } from './types'
 
 function StepLine({ step }: { step: Step }) {
@@ -19,9 +20,11 @@ function StepLine({ step }: { step: Step }) {
 export default function MessageView({
   message,
   onOpenFile,
+  onShowDeadlines,
 }: {
   message: Message
   onOpenFile: (fileId: string, name: string, page?: number) => void
+  onShowDeadlines: () => void
 }) {
   if (message.role === 'user') {
     const open = (a: Attachment) => a.id && onOpenFile(a.id, a.name)
@@ -70,13 +73,34 @@ export default function MessageView({
             <Markdown>{message.text}</Markdown>
           </div>
         )}
-        {message.cards.map((card) => (
-          <DocumentCard
-            key={card.file_id}
-            result={card}
-            onShowPage={(page) => onOpenFile(card.file_id, card.filename, page)}
-          />
-        ))}
+        {message.cards.map((card, i) => {
+          switch (card.kind) {
+            case 'document':
+              return (
+                <DocumentCard
+                  key={`${i}-${card.file_id}`}
+                  result={card}
+                  onShowPage={(page) => onOpenFile(card.file_id, card.filename, page)}
+                />
+              )
+            case 'deadlines':
+              return (
+                <DeadlineListCard
+                  key={i}
+                  title={card.title}
+                  items={card.items}
+                  onOpenFile={onOpenFile}
+                  onShowDeadlines={onShowDeadlines}
+                />
+              )
+            case 'cases':
+              return <CaseListCard key={i} title={card.title} items={card.items} onOpenFile={onOpenFile} />
+            case 'deadline_calc':
+              return <DeadlineCalcCard key={i} result={card} />
+            default:
+              return null
+          }
+        })}
         {message.state === 'stopped' && <p className="muted">응답을 중지했습니다.</p>}
         {message.state === 'error' && <p className="issue error">응답 중 오류가 났습니다. 다시 시도해 주세요.</p>}
       </div>

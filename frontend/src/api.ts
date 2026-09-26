@@ -62,7 +62,28 @@ export interface DocumentResult {
   checklist: string[]
 }
 
-export type Card = { kind: 'document' } & DocumentResult
+export interface CaseSummary {
+  case_number: string
+  court: string | null
+  case_name: string | null
+  parties: { role: string; name: string }[]
+  documents: { document_type: string; issued_date: string | null; filename: string; file_id: string }[]
+  open_deadlines: number
+  deadlines?: {
+    deadline: string
+    weekday: string
+    days_left: number
+    label: string
+    status: string
+    served_on: string
+  }[]
+}
+
+export type Card =
+  | ({ kind: 'document' } & DocumentResult)
+  | { kind: 'deadlines'; title: string; items: DeadlineRecord[] }
+  | { kind: 'cases'; title: string; items: CaseSummary[] }
+  | ({ kind: 'deadline_calc'; label: string } & DeadlineResult)
 
 export interface DeadlineResult {
   event_date: string
