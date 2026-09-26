@@ -2,7 +2,7 @@
 
 법무법인 사무원용 송무 AI 에이전트입니다. 법원 문서 PDF를 올리거나 요청을 입력하면 할 일과 기한을 정리하고, 대응 서류 초안까지 만듭니다.
 
-> 현재 상태: 로드맵 1단계(기한 계산 모듈) 구현
+> 현재 상태: 로드맵 2단계 진행 중. PDF 추출 → 송달일 입력 → 기한 계산 → 체크리스트가 화면에서 동작합니다(저장은 아직 메모리).
 
 ## 문서
 
@@ -27,12 +27,23 @@ docs/       기획서
 
 백엔드는 [uv](https://docs.astral.sh/uv/), 프론트엔드는 Node.js가 필요합니다.
 
+레포 루트 `.env`에 Gemini API 키를 넣습니다(커밋되지 않습니다).
+
+```
+GEMINI_API=발급받은_키
+# 선택: GEMINI_MODEL=gemini-3.7-flash, GEMINI_FALLBACK_MODELS=gemini-3.5-flash,gemini-flash-latest
+```
+
 ```bash
 cd backend && uv sync && uv run pytest
+cd backend && uv run uvicorn lawca.api.app:app --port 8000
 cd frontend && npm install && npm run dev
 ```
 
-프론트엔드 개발 서버(`localhost:5173`)는 `/api` 요청을 백엔드(`localhost:8000`)로 넘깁니다.
+브라우저에서 `http://localhost:5173`을 엽니다. 프론트엔드 개발 서버는 `/api` 요청을 백엔드(`localhost:8000`)로 넘깁니다.
+
+- Gemini 서버가 혼잡(503)하면 예비 모델을 차례로 시도하고, 화면에 실제로 쓴 모델을 표시합니다.
+- 개발 중에는 실제 의뢰인 문서를 올리지 않습니다. 문서가 Gemini API로 전송됩니다. 동작 확인용 가상 문서는 `backend/tests/fixtures/`에 있습니다(`backend/scripts/make_sample_pdf.py`로 생성).
 
 ### 기한 계산 (`lawca.deadlines`)
 

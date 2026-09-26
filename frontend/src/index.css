@@ -1,15 +1,309 @@
 :root {
+  --text: #1c1f23;
+  --muted: #5f6670;
+  --border: #d9dde2;
+  --surface: #ffffff;
+  --background: #f5f6f8;
+  --accent: #1f5fbf;
+  --accent-soft: #e8f0fb;
+  --error: #b42318;
+  --error-soft: #fdecea;
+  --warning: #8a5a00;
+  --warning-soft: #fff4dc;
+
   font-family: system-ui, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
-  color: #1a1a1a;
-  background: #ffffff;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--background);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
 }
 
-main {
-  max-width: 960px;
+h1,
+h2 {
+  margin: 0;
+}
+
+h1 {
+  font-size: 22px;
+}
+
+h2 {
+  font-size: 16px;
+  margin-bottom: 8px;
+}
+
+.app {
+  max-width: 1400px;
   margin: 0 auto;
-  padding: 32px 16px;
+  padding: 20px 16px 48px;
+}
+
+header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.banner {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 13px;
+}
+
+.dropzone {
+  display: block;
+  padding: 24px;
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  text-align: center;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.dropzone.dragging {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.dropzone input {
+  display: none;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+.viewer {
+  position: sticky;
+  top: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.viewer-bar {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.viewer iframe {
+  display: block;
+  width: 100%;
+  height: 80vh;
+  border: 0;
+}
+
+.side {
+  display: grid;
+  gap: 16px;
+}
+
+.panel {
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.fields {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.fields th,
+.fields td {
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.fields th {
+  width: 120px;
+  padding-right: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.fields tr.has-error th {
+  color: var(--error);
+}
+
+button.value {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+button.value:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.evidence {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.issues {
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.issue {
+  margin: 4px 0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.issue.error {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.issue.warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+fieldset {
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+
+legend {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.inline-inputs,
+.row {
+  display: inline-flex;
+  gap: 8px;
+}
+
+input[type='number'] {
+  width: 72px;
+}
+
+input,
+select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+}
+
+button.primary {
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.result {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.deadline {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.deadline strong {
+  font-size: 24px;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 14px;
+}
+
+dt {
+  color: var(--muted);
+}
+
+dd {
+  margin: 0;
+}
+
+.checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.checklist li {
+  padding: 4px 0;
+}
+
+.checklist label {
+  display: flex;
+  gap: 8px;
+}
+
+.done {
+  color: var(--muted);
+  text-decoration: line-through;
 }
