@@ -2,7 +2,7 @@
 
 법무법인 사무원용 송무 AI 에이전트입니다. 법원 문서 PDF를 올리거나 요청을 입력하면 할 일과 기한을 정리하고, 대응 서류 초안까지 만듭니다.
 
-> 현재 상태: 기획 완료, 구현 시작 전(로드맵 0~1단계)
+> 현재 상태: 로드맵 1단계(기한 계산 모듈) 구현
 
 ## 문서
 
@@ -14,6 +14,29 @@
 - 기한 계산, 필수 항목 누락 판단, 검증은 LLM이 아닌 코드로 처리합니다.
 - 추출값에는 원문 근거를 표시하고, 기한 확정과 제출은 사람이 합니다.
 - 로직은 순수 함수에 두고, LangGraph 노드는 이를 호출만 합니다.
+
+## 개발
+
+[uv](https://docs.astral.sh/uv/)가 필요합니다.
+
+```bash
+uv sync
+uv run pytest
+```
+
+### 기한 계산 (`lawca.deadlines`)
+
+```python
+from datetime import date
+from lawca.deadlines import compute_statutory_deadline, compute_designated_deadline, Period, Unit
+
+compute_statutory_deadline("appeal", date(2026, 9, 1)).deadline          # 항소: 2026-09-15
+compute_designated_deadline(date(2026, 9, 1), Period(7, Unit.DAY)).deadline  # 보정기간 7일: 2026-09-08
+```
+
+- 법정 기간 규칙은 `src/lawca/deadlines/data/rules.toml`에 근거 조문, 조문 발췌, 법령 버전, 확인일과 함께 둡니다.
+- 공휴일은 `src/lawca/deadlines/data/kr_holidays.csv`(2024~2028년)에 둡니다. `scripts/generate_holidays.py`로 다시 만들 수 있고, 라이브러리가 모르는 임시공휴일은 직접 추가합니다. 데이터가 없는 연도는 계산을 거부합니다.
+- 전자소송 간주 송달은 간주 송달일과 초일 산입 여부를 판단하지 않고 경고만 붙입니다.
 
 ## 기술 스택(계획)
 

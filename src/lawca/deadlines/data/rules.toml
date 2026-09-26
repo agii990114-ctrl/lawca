@@ -1,0 +1,77 @@
+# 법정 기간 규칙.
+# 사람 검수를 받지 않으므로 모든 규칙은 근거 조문, 조문 발췌, 법령 버전, 확인일을 가진다.
+# 근거 조문을 원문으로 확인하지 못한 규칙은 넣지 않는다.
+# 확인 출처: 국가법령정보센터(law.go.kr) 현행 조문.
+
+[[rule]]
+id = "appeal"
+name = "항소"
+trigger = "판결서가 송달된 날"
+amount = 2
+unit = "주"
+unchangeable = true
+basis = ["민사소송법 제396조"]
+excerpt = "항소는 판결서가 송달된 날부터 2주 이내에 하여야 한다. 다만, 판결서 송달전에도 할 수 있다. ② 제1항의 기간은 불변기간으로 한다."
+law_version = "민사소송법 법률 제19516호, 2025. 7. 12. 시행"
+verified_on = 2026-09-26
+
+[[rule]]
+id = "final_appeal"
+name = "상고"
+trigger = "판결서가 송달된 날"
+amount = 2
+unit = "주"
+unchangeable = true
+basis = ["민사소송법 제425조", "민사소송법 제396조"]
+excerpt = "상고와 상고심의 소송절차에는 특별한 규정이 없으면 제1장(항소)의 규정을 준용한다."
+law_version = "민사소송법 법률 제19516호, 2025. 7. 12. 시행"
+verified_on = 2026-09-26
+
+[[rule]]
+id = "immediate_appeal"
+name = "즉시항고"
+trigger = "재판이 고지된 날"
+amount = 1
+unit = "주"
+unchangeable = true
+basis = ["민사소송법 제444조"]
+excerpt = "즉시항고는 재판이 고지된 날부터 1주 이내에 하여야 한다. ② 제1항의 기간은 불변기간으로 한다."
+law_version = "민사소송법 법률 제19516호, 2025. 7. 12. 시행"
+verified_on = 2026-09-26
+
+[[rule]]
+id = "payment_order_objection"
+name = "지급명령 이의신청"
+trigger = "지급명령을 송달받은 날"
+amount = 2
+unit = "주"
+unchangeable = true
+basis = ["민사소송법 제470조"]
+excerpt = "채무자가 지급명령을 송달받은 날부터 2주 이내에 이의신청을 한 때에는 지급명령은 그 범위안에서 효력을 잃는다. ② 제1항의 기간은 불변기간으로 한다."
+law_version = "민사소송법 법률 제19516호, 2025. 7. 12. 시행"
+verified_on = 2026-09-26
+
+[[rule]]
+id = "settlement_recommendation_objection"
+name = "화해권고결정 이의신청"
+trigger = "조서 또는 결정서의 정본을 송달받은 날"
+amount = 2
+unit = "주"
+unchangeable = true
+basis = ["민사소송법 제226조"]
+excerpt = "당사자는 제225조의 결정에 대하여 그 조서 또는 결정서의 정본을 송달받은 날부터 2주 이내에 이의를 신청할 수 있다. ② 제1항의 기간은 불변기간으로 한다."
+law_version = "민사소송법 법률 제19516호, 2025. 7. 12. 시행"
+verified_on = 2026-09-26
+
+[[rule]]
+id = "answer"
+name = "답변서 제출"
+trigger = "소장의 부본을 송달받은 날"
+amount = 30
+unit = "일"
+unchangeable = false
+basis = ["민사소송법 제256조"]
+excerpt = "피고가 원고의 청구를 다투는 경우에는 소장의 부본을 송달받은 날부터 30일 이내에 답변서를 제출하여야 한다. 다만, 피고가 공시송달의 방법에 따라 소장의 부본을 송달받은 경우에는 그러하지 아니하다."
+law_version = "민사소송법 법률 제19516호, 2025. 7. 12. 시행"
+verified_on = 2026-09-26
+note = "공시송달로 소장 부본을 받은 경우에는 적용되지 않는다."
