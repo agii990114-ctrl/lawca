@@ -1,7 +1,4 @@
-"""lawca HTTP API.
-
-파일은 아직 메모리에만 보관한다. 서버를 다시 띄우면 사라진다(DB는 다음 단계).
-"""
+"""lawca HTTP API. 대화·파일·문서는 PostgreSQL에 저장한다."""
 
 from __future__ import annotations
 
@@ -9,15 +6,27 @@ import json
 from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import Response, StreamingResponse
+from sqlalchemy.orm import Session, sessionmaker
 
 from lawca.api.chat import chat_events
-from lawca.api.files import FileStore, UnsupportedFileError
-from lawca.api.schemas import ChatRequest, DeadlineOut, DeadlineRequest, FileOut, PeriodOut
+from lawca.api.schemas import (
+    ChatRequest,
+    ConversationDetail,
+    ConversationSummary,
+    DeadlineOut,
+    DeadlineRequest,
+    FileOut,
+    MessageOut,
+    PeriodOut,
+)
 from lawca.config import Settings, get_settings
+from lawca.db import repo
+from lawca.db.models import Conversation, File as FileRow, Message
+from lawca.db.session import get_session_factory
 from lawca.deadlines import (
     CalendarCoverageError,
     Period,
@@ -30,11 +39,15 @@ from lawca.extraction.gemini import Extractor, GeminiExtractor
 
 app = FastAPI(title="lawca API", version="0.1.0")
 
-file_store = FileStore()
+SessionFactory = Annotated[sessionmaker[Session], Depends(get_session_factory)]
 
 
-def get_files() -> FileStore:
-    return file_store
+def get_session(factory: SessionFactory) -> Iterator[Session]:
+    with factory() as session:
+        yield session
+
+
+DB = Annotated[Session, Depends(get_session)]
 
 
 def get_extractor(settings: Annotated[Settings, Depends(get_settings)]) -> Extractor:
@@ -46,6 +59,27 @@ def get_extractor(settings: Annotated[Settings, Depends(get_settings)]) -> Extra
 def get_extractor_factory(settings: Annotated[Settings, Depends(get_settings)]) -> Callable[[], Extractor]:
     """추출기를 만드는 함수를 넘긴다. 글만 보낸 요청은 키가 없어도 응답하도록 필요할 때 만든다."""
     return lambda: get_extractor(settings)
+
+
+def file_out(row: FileRow) -> FileOut:
+    return FileOut(id=str(row.id), name=row.name, size=row.size, mime=row.mime, pages=row.pages)
+
+
+def summary_out(c: Conversation) -> ConversationSummary:
+    return ConversationSummary(id=str(c.id), title=c.title, updated_at=c.updated_at)
+
+
+def message_out(m: Message) -> MessageOut:
+    return MessageOut(
+        id=str(m.id),
+        role=m.role,  # type: ignore[arg-type]
+        text=m.text,
+        attachments=[file_out(a.file) for a in m.attachments],
+        steps=m.steps,
+        cards=m.cards,
+        state=m.state,
+        created_at=m.created_at,
+    )
 
 
 @app.get("/api/health")
@@ -65,10 +99,13 @@ def rules() -> list[dict[str, object]]:
     ]
 
 
+# 파일
+
+
 @app.post("/api/files")
 def upload_file(
     file: Annotated[UploadFile, File()],
-    files: Annotated[FileStore, Depends(get_files)],
+    session: DB,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> FileOut:
     limit = settings.max_upload_mb * 1024 * 1024
@@ -76,35 +113,118 @@ def upload_file(
     if len(data) > limit:
         raise HTTPException(413, f"{settings.max_upload_mb}MB를 넘는 파일은 올릴 수 없습니다.")
     try:
-        stored = files.put(file.filename or "document.pdf", data)
-    except UnsupportedFileError as exc:
+        row = repo.save_file(session, file.filename or "document.pdf", data)
+    except repo.UnsupportedFileError as exc:
         raise HTTPException(415, str(exc)) from exc
-    return FileOut(id=stored.id, name=stored.name, size=len(stored.data), mime=stored.mime, pages=stored.pages)
+    session.commit()
+    return file_out(row)
 
 
 @app.get("/api/files/{file_id}/content")
-def file_content(file_id: str, files: Annotated[FileStore, Depends(get_files)]) -> Response:
-    stored = files.get(file_id)
-    if stored is None:
-        raise HTTPException(404, "파일을 찾을 수 없습니다. 서버를 다시 띄우면 파일이 사라집니다.")
-    return Response(stored.data, media_type=stored.mime)
+def file_content(file_id: str, session: DB) -> Response:
+    row = repo.get_file(session, file_id)
+    if row is None:
+        raise HTTPException(404, "파일을 찾을 수 없습니다.")
+    return Response(row.data, media_type=row.mime)
 
 
-def _sse(events: Iterator[dict[str, object]]) -> Iterator[str]:
-    for event in events:
-        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+# 대화
+
+
+@app.get("/api/conversations")
+def conversations(session: DB) -> list[ConversationSummary]:
+    return [summary_out(c) for c in repo.list_conversations(session)]
+
+
+@app.post("/api/conversations")
+def create_conversation(session: DB) -> ConversationSummary:
+    conversation = repo.create_conversation(session)
+    session.commit()
+    return summary_out(conversation)
+
+
+@app.get("/api/conversations/{conversation_id}")
+def conversation(conversation_id: str, session: DB) -> ConversationDetail:
+    c = repo.get_conversation(session, conversation_id)
+    if c is None:
+        raise HTTPException(404, "대화를 찾을 수 없습니다.")
+    return ConversationDetail(**summary_out(c).model_dump(), messages=[message_out(m) for m in c.messages])
+
+
+class _Reply:
+    """스트리밍한 이벤트를 모아 저장할 답변 메시지를 만든다(프론트엔드의 applyEvent와 같은 규칙)."""
+
+    def __init__(self) -> None:
+        self.text = ""
+        self.steps: list[dict[str, Any]] = []
+        self.cards: list[dict[str, Any]] = []
+
+    def apply(self, event: dict[str, Any]) -> None:
+        if event["type"] == "status":
+            step = {k: event[k] for k in ("id", "label", "state")}
+            self.steps = [step if s["id"] == step["id"] else s for s in self.steps]
+            if step not in self.steps:
+                self.steps.append(step)
+        elif event["type"] == "text":
+            self.text += event["delta"]
+        elif event["type"] == "card":
+            self.cards.append(event["card"])
+
+
+def _sse(event: dict[str, Any]) -> str:
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
 @app.post("/api/chat")
 def chat(
     req: ChatRequest,
-    files: Annotated[FileStore, Depends(get_files)],
+    factory: SessionFactory,
     make_extractor: Annotated[Callable[[], Extractor], Depends(get_extractor_factory)],
 ) -> StreamingResponse:
-    events = chat_events(req, files, make_extractor, date.today())
+    """사용자 메시지를 저장하고 답변을 SSE로 흘려보낸다. 답변은 끝나거나 중지되면 저장한다."""
+    with factory() as session:
+        conversation = repo.get_conversation(session, req.conversation_id)
+        if conversation is None:
+            raise HTTPException(404, "대화를 찾을 수 없습니다.")
+        files = [f for f in (repo.get_file(session, fid) for fid in req.file_ids) if f is not None]
+        repo.add_message(session, conversation, "user", req.message, files=files)
+        session.commit()
+
+    def stream() -> Iterator[str]:
+        reply = _Reply()
+        state = "done"
+        with factory() as session:
+            conversation = repo.get_conversation(session, req.conversation_id)
+            assert conversation is not None
+
+            def on_document(result: Any) -> None:
+                repo.save_document(session, result)
+                session.commit()
+
+            try:
+                for event in chat_events(
+                    req, lambda fid: repo.get_file(session, fid), make_extractor, date.today(), on_document
+                ):
+                    reply.apply(event)
+                    yield _sse(event)
+            except GeneratorExit:
+                state = "stopped"
+                raise
+            except Exception:
+                state = "error"
+                raise
+            finally:
+                repo.add_message(
+                    session, conversation, "assistant", reply.text, steps=reply.steps, cards=reply.cards, state=state
+                )
+                session.commit()
+
     return StreamingResponse(
-        _sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+        stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )
+
+
+# 기한
 
 
 @app.post("/api/deadlines")

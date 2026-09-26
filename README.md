@@ -2,7 +2,7 @@
 
 법무법인 사무원용 송무 AI 에이전트입니다. 법원 문서 PDF를 올리거나 요청을 입력하면 할 일과 기한을 정리하고, 대응 서류 초안까지 만듭니다.
 
-> 현재 상태: 채팅형 화면(Claude·ChatGPT 방식)에서 법원 문서 PDF를 첨부하면 추출 → 송달일 입력 → 기한 계산 → 할 일이 동작합니다. 글로 하는 요청(서식 작성, 조회 등)은 LangGraph 라우터를 붙이는 단계에서 추가합니다. 저장은 아직 메모리입니다.
+> 현재 상태: 채팅형 화면(Claude·ChatGPT 방식)에서 법원 문서 PDF를 첨부하면 추출 → 송달일 입력 → 기한 계산 → 할 일이 동작합니다. 글로 하는 요청(서식 작성, 조회 등)은 LangGraph 라우터를 붙이는 단계에서 추가합니다. 대화, 첨부 파일, 사건, 문서는 PostgreSQL에 저장합니다.
 
 ## 문서
 
@@ -18,9 +18,10 @@
 ## 구조
 
 ```
-backend/    Python(FastAPI, LangGraph 예정). 도메인 로직은 src/lawca/ 아래 순수 함수
+backend/    Python(FastAPI, SQLAlchemy, Alembic, LangGraph 예정). 도메인 로직은 src/lawca/ 아래 순수 함수
 frontend/   React + TypeScript(Vite)
 docs/       기획서
+db/         개발용 DB 초기화 스크립트(docker-compose.yml과 함께)
 ```
 
 ## 개발
@@ -34,11 +35,21 @@ GEMINI_API=발급받은_키
 # 선택: GEMINI_MODEL=gemini-3.7-flash, GEMINI_FALLBACK_MODELS=gemini-3.5-flash,gemini-flash-latest
 ```
 
+DB(PostgreSQL, Docker)를 띄우고 마이그레이션을 적용합니다. 포트는 5433을 씁니다.
+
 ```bash
-cd backend && uv sync && uv run pytest
+docker compose up -d --wait
+cd backend && uv sync && uv run alembic upgrade head
+```
+
+```bash
+cd backend && uv run pytest
 cd backend && uv run uvicorn lawca.api.app:app --port 8000
 cd frontend && npm install && npm run dev
 ```
+
+- 테스트는 같은 컨테이너의 `lawca_test` 데이터베이스를 씁니다. DB가 없으면 DB 테스트는 건너뜁니다.
+- 테이블을 바꾸면 `uv run alembic revision --autogenerate -m "설명"`으로 마이그레이션을 만듭니다. `alembic.ini`는 Windows에서 cp949로 읽히므로 한글을 넣지 않습니다.
 
 브라우저에서 `http://localhost:5173`을 열고, 입력창에 PDF를 끌어다 놓거나 📎로 첨부합니다. 프론트엔드 개발 서버는 `/api` 요청을 백엔드(`localhost:8000`)로 넘깁니다.
 

@@ -89,6 +89,27 @@ export interface UploadedFile {
   pages: number | null
 }
 
+export interface ConversationSummary {
+  id: string
+  title: string
+  updated_at: string
+}
+
+export interface ServerMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  attachments: UploadedFile[]
+  steps: { id: string; label: string; state: 'running' | 'done' | 'error' }[]
+  cards: Card[]
+  state: 'streaming' | 'done' | 'error' | 'stopped'
+  created_at: string
+}
+
+export interface ConversationDetail extends ConversationSummary {
+  messages: ServerMessage[]
+}
+
 export type ChatEvent =
   | { type: 'status'; id: string; label: string; state: 'running' | 'done' | 'error' }
   | { type: 'text'; delta: string }
@@ -99,6 +120,16 @@ async function errorMessage(res: Response): Promise<string> {
   const body = await res.json().catch(() => null)
   return typeof body?.detail === 'string' ? body.detail : `요청이 실패했습니다(${res.status}).`
 }
+
+async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init)
+  if (!res.ok) throw new Error(await errorMessage(res))
+  return res.json()
+}
+
+export const listConversations = () => getJson<ConversationSummary[]>('/api/conversations')
+export const createConversation = () => getJson<ConversationSummary>('/api/conversations', { method: 'POST' })
+export const getConversation = (id: string) => getJson<ConversationDetail>(`/api/conversations/${id}`)
 
 export async function computeDeadline(req: DeadlineRequest): Promise<DeadlineResult> {
   const res = await fetch('/api/deadlines', {
@@ -136,7 +167,7 @@ export function uploadFile(file: File, onProgress: (ratio: number) => void): Pro
 
 // 서버가 보내는 SSE(data: {...}\n\n)를 읽어 이벤트마다 onEvent를 부른다.
 export async function streamChat(
-  req: { message: string; file_ids: string[] },
+  req: { conversation_id: string; message: string; file_ids: string[] },
   onEvent: (event: ChatEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {

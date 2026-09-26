@@ -1,0 +1,22 @@
+# 개발용 PostgreSQL. pgvector는 서식·선례 검색(RAG) 단계에서 쓴다.
+# 계정은 로컬 개발 전용이다. 운영 환경에서는 쓰지 않는다.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: lawca
+      POSTGRES_PASSWORD: lawca
+      POSTGRES_DB: lawca
+    ports:
+      - "5433:5432"
+    volumes:
+      - lawca-db:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lawca -d lawca"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  lawca-db:

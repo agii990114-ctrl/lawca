@@ -27,6 +27,10 @@ class Settings(BaseSettings):
         default="gemini-3.5-flash,gemini-flash-latest", validation_alias="GEMINI_FALLBACK_MODELS"
     )
     max_upload_mb: int = 20
+    # docker-compose.yml의 개발용 PostgreSQL. 운영에서는 DATABASE_URL로 바꾼다.
+    database_url: str = Field(
+        default="postgresql+psycopg://lawca:lawca@localhost:5433/lawca", validation_alias="DATABASE_URL"
+    )
 
 
     @property

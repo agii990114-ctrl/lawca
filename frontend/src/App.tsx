@@ -1,14 +1,21 @@
-import { useEffect, useRef, useState } from 'react'
-import { streamChat, uploadFile, type ChatEvent } from './api'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  createConversation,
+  getConversation,
+  listConversations,
+  streamChat,
+  uploadFile,
+  type ChatEvent,
+  type ConversationSummary,
+} from './api'
 import Composer from './chat/Composer'
 import MessageView from './chat/MessageView'
 import PreviewPanel from './chat/PreviewPanel'
 import Sidebar from './chat/Sidebar'
-import { newId, type Attachment, type Conversation, type Message, type Preview } from './chat/types'
+import { fromServer, newId, type Attachment, type Message, type Preview } from './chat/types'
 
 const EXAMPLES = ['무엇을 할 수 있나요?', '이번 주에 만료되는 기한 알려줘', '확정증명원 신청서 만들어 줘']
-
-const emptyConversation = (): Conversation => ({ id: newId(), title: '새 대화', messages: [] })
+const NO_MESSAGES: Message[] = []
 
 function applyEvent(message: Message, event: ChatEvent): Message {
   switch (event.type) {
@@ -30,8 +37,12 @@ function applyEvent(message: Message, event: ChatEvent): Message {
 }
 
 export default function App() {
-  const [conversations, setConversations] = useState<Conversation[]>(() => [emptyConversation()])
-  const [activeId, setActiveId] = useState(conversations[0].id)
+  const [summaries, setSummaries] = useState<ConversationSummary[]>([])
+  const [threads, setThreads] = useState<Record<string, Message[]>>({})
+  // null이면 아직 저장하지 않은 새 대화. 첫 메시지를 보낼 때 서버에 만든다.
+  const [activeId, setActiveId] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [threadError, setThreadError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [preview, setPreview] = useState<Preview | null>(null)
@@ -40,19 +51,42 @@ export default function App() {
   const threadEnd = useRef<HTMLDivElement>(null)
   const dragDepth = useRef(0)
 
-  const active = conversations.find((c) => c.id === activeId) ?? conversations[0]
-  const streaming = active.messages.some((m) => m.state === 'streaming')
+  const messages = (activeId && threads[activeId]) || NO_MESSAGES
+  const streaming = messages.some((m) => m.state === 'streaming')
+
+  const refreshList = useCallback(() => {
+    listConversations()
+      .then((list) => {
+        setSummaries(list)
+        setLoadError(null)
+      })
+      .catch((e: Error) => setLoadError(`대화 목록을 불러오지 못했습니다. ${e.message}`))
+  }, [])
+
+  useEffect(refreshList, [refreshList])
 
   useEffect(() => {
     threadEnd.current?.scrollIntoView({ block: 'end' })
-  }, [active.messages])
+  }, [messages])
+
+  async function openConversation(id: string) {
+    setActiveId(id)
+    setPreview(null)
+    setThreadError(null)
+    if (threads[id]) return
+    try {
+      const detail = await getConversation(id)
+      setThreads((all) => ({ ...all, [id]: detail.messages.map(fromServer) }))
+    } catch (e) {
+      setThreadError(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   function updateMessage(conversationId: string, messageId: string, fn: (m: Message) => Message) {
-    setConversations((all) =>
-      all.map((c) =>
-        c.id === conversationId ? { ...c, messages: c.messages.map((m) => (m.id === messageId ? fn(m) : m)) } : c,
-      ),
-    )
+    setThreads((all) => ({
+      ...all,
+      [conversationId]: (all[conversationId] ?? []).map((m) => (m.id === messageId ? fn(m) : m)),
+    }))
   }
 
   function patchAttachment(localId: string, patch: Partial<Attachment>) {
@@ -86,21 +120,25 @@ export default function App() {
     const ready = attachments.filter((a) => a.state === 'ready')
     if (streaming || (!text && ready.length === 0)) return
 
-    const conversationId = active.id
+    let conversationId = activeId
+    if (!conversationId) {
+      try {
+        const created = await createConversation()
+        conversationId = created.id
+        setSummaries((all) => [created, ...all])
+        setThreads((all) => ({ ...all, [created.id]: [] }))
+        setActiveId(created.id)
+      } catch (e) {
+        setLoadError(`대화를 만들지 못했습니다. ${e instanceof Error ? e.message : String(e)}`)
+        return
+      }
+    }
+
     const now = new Date().toISOString()
     const user: Message = { id: newId(), role: 'user', text, attachments: ready, steps: [], cards: [], state: 'done', createdAt: now }
     const reply: Message = { id: newId(), role: 'assistant', text: '', attachments: [], steps: [], cards: [], state: 'streaming', createdAt: now }
-    setConversations((all) =>
-      all.map((c) =>
-        c.id === conversationId
-          ? {
-              ...c,
-              title: c.messages.length === 0 ? (text || ready[0].name).slice(0, 40) : c.title,
-              messages: [...c.messages, user, reply],
-            }
-          : c,
-      ),
-    )
+    const target = conversationId
+    setThreads((all) => ({ ...all, [target]: [...(all[target] ?? []), user, reply] }))
     setDraft('')
     setAttachments((all) => all.filter((a) => a.state === 'uploading'))
 
@@ -108,14 +146,14 @@ export default function App() {
     aborts.current.set(reply.id, controller)
     try {
       await streamChat(
-        { message: text, file_ids: ready.map((a) => a.id!) },
-        (event) => updateMessage(conversationId, reply.id, (m) => applyEvent(m, event)),
+        { conversation_id: target, message: text, file_ids: ready.map((a) => a.id!) },
+        (event) => updateMessage(target, reply.id, (m) => applyEvent(m, event)),
         controller.signal,
       )
-      updateMessage(conversationId, reply.id, (m) => (m.state === 'streaming' ? { ...m, state: 'done' } : m))
+      updateMessage(target, reply.id, (m) => (m.state === 'streaming' ? { ...m, state: 'done' } : m))
     } catch (e) {
       const stopped = controller.signal.aborted
-      updateMessage(conversationId, reply.id, (m) => ({
+      updateMessage(target, reply.id, (m) => ({
         ...m,
         state: stopped ? 'stopped' : 'error',
         steps: m.steps.map((s) => (s.state === 'running' ? { ...s, state: stopped ? 'done' : 'error' } : s)),
@@ -123,23 +161,18 @@ export default function App() {
       }))
     } finally {
       aborts.current.delete(reply.id)
+      refreshList()
     }
   }
 
   function stop() {
-    for (const m of active.messages) aborts.current.get(m.id)?.abort()
+    for (const m of messages) aborts.current.get(m.id)?.abort()
   }
 
   function newConversation() {
-    const existing = conversations.find((c) => c.messages.length === 0)
-    if (existing) {
-      setActiveId(existing.id)
-    } else {
-      const c = emptyConversation()
-      setConversations((all) => [c, ...all])
-      setActiveId(c.id)
-    }
+    setActiveId(null)
     setPreview(null)
+    setThreadError(null)
   }
 
   const composer = (
@@ -178,17 +211,15 @@ export default function App() {
       }}
     >
       <Sidebar
-        conversations={conversations}
-        activeId={active.id}
-        onSelect={(id) => {
-          setActiveId(id)
-          setPreview(null)
-        }}
+        conversations={summaries}
+        activeId={activeId}
+        loadError={loadError}
+        onSelect={openConversation}
         onNew={newConversation}
       />
 
       <main className="chat">
-        {active.messages.length === 0 ? (
+        {activeId === null ? (
           <div className="empty">
             <h1>무엇을 도와드릴까요?</h1>
             <p className="muted">
@@ -207,7 +238,8 @@ export default function App() {
         ) : (
           <>
             <div className="thread">
-              {active.messages.map((m) => (
+              {threadError && <p className="issue error">대화를 불러오지 못했습니다. {threadError}</p>}
+              {messages.map((m) => (
                 <MessageView
                   key={m.id}
                   message={m}

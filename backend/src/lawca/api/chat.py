@@ -19,8 +19,8 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from lawca.api.files import FileStore, StoredFile
 from lawca.api.schemas import ChatRequest, DocumentOut, IssueOut, PeriodOut, SuggestionOut
+from lawca.db.models import File
 from lawca.extraction.gemini import ExtractionError, Extractor, ModelUnavailableError
 from lawca.extraction.validate import has_text, pdf_text_pages, validate
 from lawca.workflow import checklist, suggest_deadlines
@@ -34,11 +34,11 @@ TEXT_ONLY_REPLY = (
 )
 
 
-def analyze(stored: StoredFile, extractor: Extractor, today: date) -> DocumentOut:
+def analyze(stored: File, extractor: Extractor, today: date) -> DocumentOut:
     doc = extractor.extract(stored.data)
     pages = pdf_text_pages(stored.data)
     return DocumentOut(
-        file_id=stored.id,
+        file_id=str(stored.id),
         filename=stored.name,
         model=extractor.model,
         text_available=has_text(pages),
@@ -74,11 +74,13 @@ def summarize(result: DocumentOut) -> str:
 
 def chat_events(
     req: ChatRequest,
-    files: FileStore,
+    get_file: Callable[[str], File | None],
     make_extractor: Callable[[], Extractor],
     today: date,
+    on_document: Callable[[DocumentOut], None] = lambda _: None,
 ) -> Iterator[Event]:
-    attachments = [files.get(file_id) for file_id in req.file_ids]
+    """on_document는 문서 처리 결과가 나올 때마다 불린다(저장용)."""
+    attachments = [get_file(file_id) for file_id in req.file_ids]
     if any(a is None for a in attachments):
         yield {"type": "text", "delta": "첨부 파일을 찾지 못했습니다. 서버가 다시 시작되었다면 파일을 다시 올려 주세요."}
         yield {"type": "done"}
@@ -106,6 +108,7 @@ def chat_events(
             yield {"type": "status", "id": step, "label": f"{stored.name} 읽기 실패", "state": "error"}
             yield {"type": "text", "delta": f"{prefix}**{stored.name}**을(를) 읽지 못했습니다. {exc}"}
             continue
+        on_document(result)
         yield {"type": "status", "id": step, "label": f"{stored.name} 읽음 · {result.model}", "state": "done"}
         yield {"type": "text", "delta": prefix + summarize(result)}
         yield {"type": "card", "card": {"kind": "document", **result.model_dump(mode="json")}}

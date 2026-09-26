@@ -1,13 +1,15 @@
-import type { Conversation } from './types'
+import type { ConversationSummary } from '../api'
 
 export default function Sidebar({
   conversations,
   activeId,
+  loadError,
   onSelect,
   onNew,
 }: {
-  conversations: Conversation[]
-  activeId: string
+  conversations: ConversationSummary[]
+  activeId: string | null
+  loadError: string | null
   onSelect: (id: string) => void
   onNew: () => void
 }) {
@@ -18,23 +20,22 @@ export default function Sidebar({
         + 새 대화
       </button>
       <div className="sidebar-label">대화</div>
+      {loadError && <p className="issue error">{loadError}</p>}
       <ul>
-        {conversations
-          .filter((c) => c.messages.length > 0)
-          .map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                className={c.id === activeId ? 'active' : undefined}
-                onClick={() => onSelect(c.id)}
-                title={c.title}
-              >
-                {c.title}
-              </button>
-            </li>
-          ))}
+        {conversations.map((c) => (
+          <li key={c.id}>
+            <button
+              type="button"
+              className={c.id === activeId ? 'active' : undefined}
+              onClick={() => onSelect(c.id)}
+              title={c.title}
+            >
+              {c.title}
+            </button>
+          </li>
+        ))}
       </ul>
-      <p className="sidebar-note">대화는 아직 저장되지 않습니다. 새로고침하면 사라집니다.</p>
+      <p className="sidebar-note">대화와 첨부 파일은 자동으로 저장됩니다.</p>
     </nav>
   )
 }

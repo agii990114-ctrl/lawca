@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Literal
+from datetime import date, datetime
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -93,5 +93,27 @@ class DeadlineOut(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    conversation_id: str
     message: str = ""
     file_ids: list[str] = []
+
+
+class ConversationSummary(BaseModel):
+    id: str
+    title: str
+    updated_at: datetime
+
+
+class MessageOut(BaseModel):
+    id: str
+    role: Literal["user", "assistant"]
+    text: str
+    attachments: list[FileOut]
+    steps: list[dict[str, Any]]
+    cards: list[dict[str, Any]]
+    state: str
+    created_at: datetime
+
+
+class ConversationDetail(ConversationSummary):
+    messages: list[MessageOut]
