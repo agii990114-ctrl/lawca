@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+
+# 환경 변수·비밀 (Gemini API 키 등)
+.env
+.env.*
+!.env.example
+
+# 에디터·OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 평가용 문서와 로컬 데이터 (저작권·개인정보 확인 전에는 커밋하지 않음)
+data/raw/
+data/private/
+*.log
