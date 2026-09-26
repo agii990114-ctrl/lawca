@@ -26,6 +26,7 @@ export interface Message {
   steps: Step[]
   cards: Card[]
   state: 'streaming' | 'done' | 'error' | 'stopped'
+  createdAt: string
 }
 
 export interface Conversation {

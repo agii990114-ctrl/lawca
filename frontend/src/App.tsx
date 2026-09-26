@@ -87,8 +87,9 @@ export default function App() {
     if (streaming || (!text && ready.length === 0)) return
 
     const conversationId = active.id
-    const user: Message = { id: newId(), role: 'user', text, attachments: ready, steps: [], cards: [], state: 'done' }
-    const reply: Message = { id: newId(), role: 'assistant', text: '', attachments: [], steps: [], cards: [], state: 'streaming' }
+    const now = new Date().toISOString()
+    const user: Message = { id: newId(), role: 'user', text, attachments: ready, steps: [], cards: [], state: 'done', createdAt: now }
+    const reply: Message = { id: newId(), role: 'assistant', text: '', attachments: [], steps: [], cards: [], state: 'streaming', createdAt: now }
     setConversations((all) =>
       all.map((c) =>
         c.id === conversationId
