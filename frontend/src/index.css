@@ -770,6 +770,230 @@ dd {
   text-decoration: line-through;
 }
 
+/* 기한 확정 */
+
+button.secondary {
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.secondary:hover {
+  border-color: var(--accent);
+}
+
+button.secondary.small {
+  padding: 3px 10px;
+  font-size: 13px;
+}
+
+button.secondary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.confirm-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.confirmed-list {
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.confirmed-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border: 1px solid #b9d7c6;
+  border-radius: 8px;
+  background: #eef7f1;
+  font-size: 14px;
+}
+
+.confirmed-list li.done {
+  border-color: var(--border);
+  background: var(--background);
+  color: var(--muted);
+}
+
+.confirmed-list li .link-button {
+  margin-left: auto;
+}
+
+.dday {
+  display: inline-block;
+  min-width: 52px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.dday:empty {
+  display: none;
+}
+
+.dday.urgent {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+/* 기한 목록 화면 */
+
+.nav-item {
+  padding: 6px 8px;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nav-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.nav-item.active {
+  background: rgba(0, 0, 0, 0.08);
+  font-weight: 600;
+}
+
+.deadlines-view {
+  flex: 1;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  overflow-y: auto;
+}
+
+.view-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.view-header h1 {
+  font-size: 22px;
+}
+
+.export {
+  display: flex;
+  gap: 8px;
+}
+
+.button-like {
+  padding: 7px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 14px;
+  text-decoration: none;
+}
+
+.button-like:hover {
+  border-color: var(--accent);
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs button {
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.empty-note {
+  padding: 24px 0;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.deadline-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
+}
+
+.deadline-table th,
+.deadline-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.deadline-table th {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.deadline-table td:first-child {
+  white-space: nowrap;
+}
+
+.deadline-table td:first-child .dday {
+  margin-right: 8px;
+}
+
+.deadline-table tr.urgent-row {
+  background: #fff8f7;
+}
+
+.deadline-table .actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.deadline-table .actions .link-button {
+  margin-left: 8px;
+}
+
+.warn-dot {
+  font-size: 12px;
+  color: var(--warning);
+}
+
 /* 미리보기 */
 
 .preview {
@@ -823,7 +1047,12 @@ dd {
   color: var(--accent);
 }
 
-/* 좁은 화면: 대화 목록을 숨기고 미리보기는 전체 화면으로 연다. 기본 규칙보다 뒤에 둬야 한다. */
+.mobile-bar,
+.scrim {
+  display: none;
+}
+
+/* 좁은 화면: 대화 목록은 ☰ 버튼으로 여는 덮개로, 미리보기는 전체 화면으로 연다. 기본 규칙보다 뒤에 둬야 한다. */
 
 @media (max-width: 900px) {
   .layout,
@@ -832,7 +1061,51 @@ dd {
   }
 
   .sidebar {
-    display: none;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 25;
+    width: 280px;
+    transform: translateX(-100%);
+    transition: transform 0.2s;
+  }
+
+  .sidebar.open {
+    transform: none;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.15);
+  }
+
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 24;
+    background: rgba(0, 0, 0, 0.3);
+  }
+
+  .mobile-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--background);
+  }
+
+  .brand-inline {
+    font-weight: 700;
+  }
+
+  .mobile-title {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 14px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .empty {
+    padding-bottom: 8vh;
   }
 
   .preview {

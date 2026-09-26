@@ -46,6 +46,8 @@ class FileOut(BaseModel):
 class DocumentOut(BaseModel):
     """문서 처리 결과. 채팅에서는 'document' 카드로 보낸다."""
 
+    document_id: str | None = None
+    """저장한 문서의 id. 기한을 확정할 때 쓴다."""
     file_id: str
     filename: str
     model: str
@@ -117,3 +119,55 @@ class MessageOut(BaseModel):
 
 class ConversationDetail(ConversationSummary):
     messages: list[MessageOut]
+
+
+ServiceKind = Literal["electronic_confirmed", "electronic_deemed", "paper"]
+
+SERVICE_LABELS: dict[str, str] = {
+    "electronic_confirmed": "전자소송 확인일",
+    "electronic_deemed": "전자소송 간주 송달일",
+    "paper": "종이 문서 수령일",
+}
+
+
+class DeadlineConfirmRequest(BaseModel):
+    """기한 확정. 서버는 이 입력으로 기한을 다시 계산해 저장한다."""
+
+    document_id: str | None = None
+    file_id: str | None = None
+    """document_id가 없는 예전 카드는 파일로 가장 최근 문서를 찾는다."""
+    label: str
+    event_date: date
+    rule_id: str | None = None
+    period: PeriodOut | None = None
+    service_kind: ServiceKind
+
+
+class DeadlineRecordOut(BaseModel):
+    id: str
+    status: Literal["confirmed", "done", "cancelled"]
+    label: str
+    kind: str
+    rule_id: str | None
+    period: PeriodOut
+    event_date: date
+    service_kind: str
+    service_label: str
+    count_start: date
+    nominal_end: date
+    deadline: date
+    extended_over: list[dict[str, Any]]
+    basis: list[str]
+    warnings: list[str]
+    created_at: datetime
+    document_id: str
+    document_type: str
+    file_id: str
+    filename: str
+    case_number: str | None
+    court: str | None
+    case_name: str | None
+
+
+class DeadlineStatusUpdate(BaseModel):
+    status: Literal["confirmed", "done", "cancelled"]

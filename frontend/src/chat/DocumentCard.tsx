@@ -97,7 +97,12 @@ export default function DocumentCard({
         <p className="card-foot">근거를 누르면 원문의 해당 쪽이 열립니다 · 모델 {result.model}</p>
       </section>
 
-      <DeadlinePanel suggestions={result.suggestions} />
+      <DeadlinePanel
+        suggestions={result.suggestions}
+        documentId={result.document_id}
+        fileId={result.file_id}
+        documentType={result.extraction.document_type}
+      />
 
       <section className="card">
         <h3>할 일</h3>

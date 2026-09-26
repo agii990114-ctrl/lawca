@@ -6,7 +6,7 @@ import hashlib
 import io
 import re
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
 
 from pypdf import PdfReader
@@ -15,7 +15,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from lawca.api.schemas import DocumentOut
-from lawca.db.models import AuditLog, Case, Conversation, Document, File, Message, MessageFile, Party
+from lawca.db.models import AuditLog, Case, Conversation, Deadline, Document, File, Message, MessageFile, Party
+from lawca.deadlines import DeadlineResult
 from lawca.extraction.validate import CASE_NUMBER
 
 PDF_MIME = "application/pdf"
@@ -184,3 +185,101 @@ def save_document(session: Session, result: DocumentOut) -> Document:
         {"file_id": result.file_id, "document_type": document.document_type, "case_id": str(document.case_id)},
     )
     return document
+
+
+# 기한
+
+
+def find_document(session: Session, document_id: str | None, file_id: str | None) -> Document | None:
+    """document_id로 찾고, 없으면 그 파일로 만든 가장 최근 문서를 찾는다."""
+    if document_id and (parsed := _parse_id(document_id)):
+        return session.get(Document, parsed)
+    if file_id and (parsed := _parse_id(file_id)):
+        query = select(Document).where(Document.file_id == parsed).order_by(Document.created_at.desc())
+        return session.scalars(query).first()
+    return None
+
+
+def create_deadline(
+    session: Session,
+    document: Document,
+    *,
+    label: str,
+    kind: str,
+    rule_id: str | None,
+    event_date: date,
+    service_kind: str,
+    result: DeadlineResult,
+) -> Deadline:
+    deadline = Deadline(
+        document_id=document.id,
+        case_id=document.case_id,
+        label=label,
+        kind=kind,
+        rule_id=rule_id,
+        period_amount=result.period.amount,
+        period_unit=result.period.unit.value,
+        event_date=event_date,
+        service_kind=service_kind,
+        count_start=result.count_start,
+        nominal_end=result.nominal_end,
+        deadline=result.deadline,
+        extended_over=[{"day": d.isoformat(), "reason": why} for d, why in result.extended_over],
+        basis=list(result.basis),
+        warnings=list(result.warnings),
+        status="confirmed",
+        confirmed_by=SYSTEM_ACTOR,
+    )
+    session.add(deadline)
+    session.flush()
+    audit(
+        session,
+        "deadline.confirm",
+        "deadline",
+        deadline.id,
+        {
+            "label": label,
+            "event_date": event_date.isoformat(),
+            "service_kind": service_kind,
+            "deadline": result.deadline.isoformat(),
+            "document_id": str(document.id),
+        },
+    )
+    return deadline
+
+
+def _deadline_query():  # noqa: ANN202
+    """기한과 함께 응답에 필요한 문서·파일·사건을 한 번에 읽는다."""
+    return select(Deadline).options(
+        selectinload(Deadline.document).selectinload(Document.file), selectinload(Deadline.case)
+    )
+
+
+def get_deadline(session: Session, deadline_id: uuid.UUID) -> Deadline | None:
+    return session.scalars(_deadline_query().where(Deadline.id == deadline_id)).first()
+
+
+def list_deadlines(
+    session: Session, statuses: list[str] | None = None, document_id: str | None = None
+) -> list[Deadline]:
+    query = _deadline_query().order_by(Deadline.deadline, Deadline.created_at)
+    if statuses:
+        query = query.where(Deadline.status.in_(statuses))
+    if document_id is not None:
+        parsed = _parse_id(document_id)
+        if parsed is None:
+            return []
+        query = query.where(Deadline.document_id == parsed)
+    return list(session.scalars(query))
+
+
+def set_deadline_status(session: Session, deadline_id: str, status: str) -> Deadline | None:
+    parsed = _parse_id(deadline_id)
+    deadline = session.get(Deadline, parsed) if parsed else None
+    if deadline is None or deadline.status == status:
+        return deadline
+    audit(session, f"deadline.{status}", "deadline", deadline.id, {"from": deadline.status, "to": status})
+    deadline.status = status
+    deadline.status_changed_at = datetime.now(timezone.utc)
+    session.flush()
+    return deadline

@@ -1,45 +1,55 @@
-"""lawca HTTP API. 대화·파일·문서는 PostgreSQL에 저장한다."""
+"""lawca HTTP API. 대화·파일·문서·기한은 PostgreSQL에 저장한다."""
 
 from __future__ import annotations
 
+import csv
+import io
 import json
+import uuid
 from collections.abc import Callable, Iterator
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session, sessionmaker
 
 from lawca.api.chat import chat_events
 from lawca.api.schemas import (
+    SERVICE_LABELS,
     ChatRequest,
     ConversationDetail,
     ConversationSummary,
+    DeadlineConfirmRequest,
     DeadlineOut,
+    DeadlineRecordOut,
     DeadlineRequest,
+    DeadlineStatusUpdate,
     FileOut,
     MessageOut,
     PeriodOut,
 )
 from lawca.config import Settings, get_settings
 from lawca.db import repo
-from lawca.db.models import Conversation, File as FileRow, Message
+from lawca.db.models import Conversation, Deadline, File as FileRow, Message
 from lawca.db.session import get_session_factory
 from lawca.deadlines import (
     CalendarCoverageError,
+    DeadlineResult,
     Period,
     Unit,
     compute_designated_deadline,
     compute_statutory_deadline,
     load_rules,
 )
+from lawca.deadlines.ics import IcsEvent, to_ics
 from lawca.extraction.gemini import Extractor, GeminiExtractor
 
 app = FastAPI(title="lawca API", version="0.1.0")
 
 SessionFactory = Annotated[sessionmaker[Session], Depends(get_session_factory)]
+UNITS = {u.value: u for u in Unit}
 
 
 def get_session(factory: SessionFactory) -> Iterator[Session]:
@@ -197,9 +207,10 @@ def chat(
             conversation = repo.get_conversation(session, req.conversation_id)
             assert conversation is not None
 
-            def on_document(result: Any) -> None:
-                repo.save_document(session, result)
+            def on_document(result: Any) -> str:
+                document = repo.save_document(session, result)
                 session.commit()
+                return str(document.id)
 
             try:
                 for event in chat_events(
@@ -227,25 +238,168 @@ def chat(
 # 기한
 
 
-@app.post("/api/deadlines")
-def deadline(req: DeadlineRequest) -> DeadlineOut:
-    if (req.rule_id is None) == (req.period is None):
+def _compute(rule_id: str | None, period: PeriodOut | None, event_date: date, deemed: bool) -> DeadlineResult:
+    """법정 기간(rule_id) 또는 문서가 정한 기간(period) 중 하나로 기한을 계산한다. 잘못된 입력은 HTTP 오류로 바꾼다."""
+    if (rule_id is None) == (period is None):
         raise HTTPException(422, "rule_id와 period 중 하나만 보내야 합니다.")
     try:
-        if req.rule_id is not None:
-            result = compute_statutory_deadline(
-                req.rule_id, req.event_date, deemed_electronic_service=req.deemed_electronic_service
-            )
-        else:
-            assert req.period is not None
-            units = {u.value: u for u in Unit}
-            result = compute_designated_deadline(
-                req.event_date,
-                Period(req.period.amount, units[req.period.unit]),
-                deemed_electronic_service=req.deemed_electronic_service,
-            )
+        if rule_id is not None:
+            return compute_statutory_deadline(rule_id, event_date, deemed_electronic_service=deemed)
+        assert period is not None
+        return compute_designated_deadline(
+            event_date, Period(period.amount, UNITS[period.unit]), deemed_electronic_service=deemed
+        )
     except KeyError as exc:
         raise HTTPException(404, str(exc.args[0])) from exc
     except (CalendarCoverageError, ValueError) as exc:
         raise HTTPException(422, str(exc)) from exc
-    return DeadlineOut.of(result)
+
+
+def record_out(d: Deadline) -> DeadlineRecordOut:
+    return DeadlineRecordOut(
+        id=str(d.id),
+        status=d.status,  # type: ignore[arg-type]
+        label=d.label,
+        kind=d.kind,
+        rule_id=d.rule_id,
+        period=PeriodOut.of(Period(d.period_amount, UNITS[d.period_unit])),
+        event_date=d.event_date,
+        service_kind=d.service_kind,
+        service_label=SERVICE_LABELS.get(d.service_kind, d.service_kind),
+        count_start=d.count_start,
+        nominal_end=d.nominal_end,
+        deadline=d.deadline,
+        extended_over=d.extended_over,
+        basis=d.basis,
+        warnings=d.warnings,
+        created_at=d.created_at,
+        document_id=str(d.document_id),
+        document_type=d.document.document_type,
+        file_id=str(d.document.file_id),
+        filename=d.document.file.name,
+        case_number=d.case.case_number if d.case else None,
+        court=d.case.court if d.case else None,
+        case_name=d.case.case_name if d.case else None,
+    )
+
+
+def _one(session: Session, deadline_id: uuid.UUID) -> DeadlineRecordOut:
+    """관계(문서·파일·사건)를 함께 다시 읽어 응답으로 바꾼다."""
+    saved = repo.get_deadline(session, deadline_id)
+    assert saved is not None
+    return record_out(saved)
+
+
+@app.post("/api/deadlines")
+def deadline(req: DeadlineRequest) -> DeadlineOut:
+    """기한을 계산만 한다. 저장하지 않는다."""
+    return DeadlineOut.of(_compute(req.rule_id, req.period, req.event_date, req.deemed_electronic_service))
+
+
+@app.post("/api/deadlines/confirm", status_code=201)
+def confirm_deadline(req: DeadlineConfirmRequest, session: DB) -> DeadlineRecordOut:
+    """기한을 확정해 저장한다. 화면이 계산한 날짜가 아니라 서버가 다시 계산한 값을 저장한다."""
+    document = repo.find_document(session, req.document_id, req.file_id)
+    if document is None:
+        raise HTTPException(404, "문서를 찾을 수 없습니다.")
+    result = _compute(req.rule_id, req.period, req.event_date, req.service_kind == "electronic_deemed")
+    saved = repo.create_deadline(
+        session,
+        document,
+        label=req.label,
+        kind="statutory" if req.rule_id else "designated",
+        rule_id=req.rule_id,
+        event_date=req.event_date,
+        service_kind=req.service_kind,
+        result=result,
+    )
+    session.commit()
+    return _one(session, saved.id)
+
+
+def _statuses(status: str | None) -> list[str] | None:
+    return [s for s in status.split(",") if s] if status else None
+
+
+@app.get("/api/deadlines")
+def deadlines(
+    session: DB,
+    status: Annotated[str | None, Query(description="쉼표로 구분. 예: confirmed,done")] = None,
+    document_id: str | None = None,
+) -> list[DeadlineRecordOut]:
+    return [record_out(d) for d in repo.list_deadlines(session, _statuses(status), document_id)]
+
+
+@app.patch("/api/deadlines/{deadline_id}")
+def update_deadline(deadline_id: str, req: DeadlineStatusUpdate, session: DB) -> DeadlineRecordOut:
+    saved = repo.set_deadline_status(session, deadline_id, req.status)
+    if saved is None:
+        raise HTTPException(404, "기한을 찾을 수 없습니다.")
+    session.commit()
+    return _one(session, saved.id)
+
+
+def _title(d: Deadline) -> str:
+    case = f" · {d.case.case_number}" if d.case else ""
+    return f"[만료] {d.label}{case}"
+
+
+def _description(d: Deadline) -> str:
+    lines = [
+        f"문서: {d.document.document_type} ({d.document.file.name})",
+        f"송달일: {d.event_date.isoformat()} ({SERVICE_LABELS.get(d.service_kind, d.service_kind)})",
+        f"기간: {d.period_amount}{d.period_unit}",
+        f"근거: {', '.join(d.basis)}",
+    ]
+    lines += [f"주의: {w}" for w in d.warnings]
+    return "\n".join(lines)
+
+
+@app.get("/api/deadlines/export.ics")
+def export_ics(session: DB) -> Response:
+    """확정 상태인 기한을 캘린더 파일로 내보낸다. 완료·취소한 기한은 넣지 않는다."""
+    events = [
+        IcsEvent(uid=f"{d.id}@lawca", day=d.deadline, summary=_title(d), description=_description(d))
+        for d in repo.list_deadlines(session, ["confirmed"])
+    ]
+    return Response(
+        to_ics(events, datetime.now(timezone.utc)).encode("utf-8"),
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="lawca-deadlines.ics"'},
+    )
+
+
+@app.get("/api/deadlines/export.csv")
+def export_csv(session: DB) -> Response:
+    """취소하지 않은 기한을 엑셀에서 바로 열 수 있는 CSV(UTF-8 BOM)로 내보낸다."""
+    status_labels = {"confirmed": "확정", "done": "완료", "cancelled": "취소"}
+    weekdays = "월화수목금토일"
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\r\n")
+    writer.writerow(
+        ["만료일", "요일", "기한", "상태", "사건번호", "법원", "사건명", "문서", "송달일", "송달 유형", "기간", "기산일", "근거", "주의"]
+    )
+    for d in repo.list_deadlines(session, ["confirmed", "done"]):
+        writer.writerow(
+            [
+                d.deadline.isoformat(),
+                weekdays[d.deadline.weekday()],
+                d.label,
+                status_labels[d.status],
+                d.case.case_number if d.case else "",
+                d.case.court if d.case else "",
+                d.case.case_name if d.case else "",
+                f"{d.document.document_type} ({d.document.file.name})",
+                d.event_date.isoformat(),
+                SERVICE_LABELS.get(d.service_kind, d.service_kind),
+                f"{d.period_amount}{d.period_unit}",
+                d.count_start.isoformat(),
+                ", ".join(d.basis),
+                " / ".join(d.warnings),
+            ]
+        )
+    return Response(
+        ("﻿" + out.getvalue()).encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="lawca-deadlines.csv"'},
+    )

@@ -17,3 +17,17 @@ export function todayIso(): string {
 export function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' })
 }
+
+// 오늘부터 만료일까지 남은 날. 0이면 오늘 만료.
+export function daysUntil(iso: string, today = todayIso()): number {
+  const toUtc = (v: string) => {
+    const [y, m, d] = v.split('-').map(Number)
+    return Date.UTC(y, m - 1, d)
+  }
+  return Math.round((toUtc(iso) - toUtc(today)) / 86_400_000)
+}
+
+export function dDay(days: number): string {
+  if (days === 0) return 'D-day'
+  return days > 0 ? `D-${days}` : `D+${-days}`
+}

@@ -77,9 +77,9 @@ def chat_events(
     get_file: Callable[[str], File | None],
     make_extractor: Callable[[], Extractor],
     today: date,
-    on_document: Callable[[DocumentOut], None] = lambda _: None,
+    on_document: Callable[[DocumentOut], str | None] = lambda _: None,
 ) -> Iterator[Event]:
-    """on_document는 문서 처리 결과가 나올 때마다 불린다(저장용)."""
+    """on_document는 문서 처리 결과가 나올 때마다 불리고, 저장한 문서의 id를 돌려준다."""
     attachments = [get_file(file_id) for file_id in req.file_ids]
     if any(a is None for a in attachments):
         yield {"type": "text", "delta": "첨부 파일을 찾지 못했습니다. 서버가 다시 시작되었다면 파일을 다시 올려 주세요."}
@@ -108,7 +108,9 @@ def chat_events(
             yield {"type": "status", "id": step, "label": f"{stored.name} 읽기 실패", "state": "error"}
             yield {"type": "text", "delta": f"{prefix}**{stored.name}**을(를) 읽지 못했습니다. {exc}"}
             continue
-        on_document(result)
+        document_id = on_document(result)
+        if document_id:
+            result = result.model_copy(update={"document_id": document_id})
         yield {"type": "status", "id": step, "label": f"{stored.name} 읽음 · {result.model}", "state": "done"}
         yield {"type": "text", "delta": prefix + summarize(result)}
         yield {"type": "card", "card": {"kind": "document", **result.model_dump(mode="json")}}

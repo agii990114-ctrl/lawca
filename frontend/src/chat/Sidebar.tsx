@@ -4,20 +4,33 @@ export default function Sidebar({
   conversations,
   activeId,
   loadError,
+  view,
+  open,
   onSelect,
   onNew,
+  onShowDeadlines,
 }: {
   conversations: ConversationSummary[]
   activeId: string | null
   loadError: string | null
+  view: 'chat' | 'deadlines'
+  open: boolean
   onSelect: (id: string) => void
   onNew: () => void
+  onShowDeadlines: () => void
 }) {
   return (
-    <nav className="sidebar" aria-label="대화 목록">
+    <nav className={`sidebar${open ? ' open' : ''}`} aria-label="대화 목록">
       <div className="brand">lawca</div>
       <button type="button" className="new-chat" onClick={onNew}>
         + 새 대화
+      </button>
+      <button
+        type="button"
+        className={`nav-item${view === 'deadlines' ? ' active' : ''}`}
+        onClick={onShowDeadlines}
+      >
+        기한
       </button>
       <div className="sidebar-label">대화</div>
       {loadError && <p className="issue error">{loadError}</p>}
@@ -26,7 +39,7 @@ export default function Sidebar({
           <li key={c.id}>
             <button
               type="button"
-              className={c.id === activeId ? 'active' : undefined}
+              className={view === 'chat' && c.id === activeId ? 'active' : undefined}
               onClick={() => onSelect(c.id)}
               title={c.title}
             >

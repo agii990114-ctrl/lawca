@@ -51,6 +51,7 @@ export interface Suggestion {
 }
 
 export interface DocumentResult {
+  document_id?: string | null
   file_id: string
   filename: string
   model: string
@@ -79,6 +80,45 @@ export interface DeadlineRequest {
   rule_id?: string
   period?: Period
   deemed_electronic_service: boolean
+}
+
+export type ServiceKind = 'electronic_confirmed' | 'electronic_deemed' | 'paper'
+export type DeadlineStatus = 'confirmed' | 'done' | 'cancelled'
+
+export interface DeadlineRecord {
+  id: string
+  status: DeadlineStatus
+  label: string
+  kind: 'statutory' | 'designated'
+  rule_id: string | null
+  period: Period
+  event_date: string
+  service_kind: ServiceKind
+  service_label: string
+  count_start: string
+  nominal_end: string
+  deadline: string
+  extended_over: { day: string; reason: string }[]
+  basis: string[]
+  warnings: string[]
+  created_at: string
+  document_id: string
+  document_type: string
+  file_id: string
+  filename: string
+  case_number: string | null
+  court: string | null
+  case_name: string | null
+}
+
+export interface DeadlineConfirmRequest {
+  document_id?: string | null
+  file_id?: string
+  label: string
+  event_date: string
+  rule_id?: string
+  period?: Period
+  service_kind: ServiceKind
 }
 
 export interface UploadedFile {
@@ -130,6 +170,29 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
 export const listConversations = () => getJson<ConversationSummary[]>('/api/conversations')
 export const createConversation = () => getJson<ConversationSummary>('/api/conversations', { method: 'POST' })
 export const getConversation = (id: string) => getJson<ConversationDetail>(`/api/conversations/${id}`)
+
+export const confirmDeadline = (req: DeadlineConfirmRequest) =>
+  getJson<DeadlineRecord>('/api/deadlines/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+
+export function listDeadlines(params: { status?: DeadlineStatus[]; document_id?: string } = {}) {
+  const query = new URLSearchParams()
+  if (params.status?.length) query.set('status', params.status.join(','))
+  if (params.document_id) query.set('document_id', params.document_id)
+  return getJson<DeadlineRecord[]>(`/api/deadlines?${query}`)
+}
+
+export const updateDeadlineStatus = (id: string, status: DeadlineStatus) =>
+  getJson<DeadlineRecord>(`/api/deadlines/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  })
+
+export const DEADLINE_EXPORT = { ics: '/api/deadlines/export.ics', csv: '/api/deadlines/export.csv' }
 
 export async function computeDeadline(req: DeadlineRequest): Promise<DeadlineResult> {
   const res = await fetch('/api/deadlines', {

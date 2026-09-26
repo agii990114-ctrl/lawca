@@ -9,6 +9,7 @@ import {
   type ConversationSummary,
 } from './api'
 import Composer from './chat/Composer'
+import DeadlinesView from './DeadlinesView'
 import MessageView from './chat/MessageView'
 import PreviewPanel from './chat/PreviewPanel'
 import Sidebar from './chat/Sidebar'
@@ -41,6 +42,9 @@ export default function App() {
   const [threads, setThreads] = useState<Record<string, Message[]>>({})
   // null이면 아직 저장하지 않은 새 대화. 첫 메시지를 보낼 때 서버에 만든다.
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [view, setView] = useState<'chat' | 'deadlines'>('chat')
+  // 좁은 화면에서만 쓰는 사이드바 열림 상태
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [threadError, setThreadError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -70,6 +74,8 @@ export default function App() {
   }, [messages])
 
   async function openConversation(id: string) {
+    setSidebarOpen(false)
+    setView('chat')
     setActiveId(id)
     setPreview(null)
     setThreadError(null)
@@ -170,6 +176,8 @@ export default function App() {
   }
 
   function newConversation() {
+    setSidebarOpen(false)
+    setView('chat')
     setActiveId(null)
     setPreview(null)
     setThreadError(null)
@@ -214,12 +222,31 @@ export default function App() {
         conversations={summaries}
         activeId={activeId}
         loadError={loadError}
+        view={view}
         onSelect={openConversation}
         onNew={newConversation}
+        open={sidebarOpen}
+        onShowDeadlines={() => {
+          setSidebarOpen(false)
+          setView('deadlines')
+          setPreview(null)
+        }}
       />
+      {sidebarOpen && <div className="scrim" onClick={() => setSidebarOpen(false)} />}
 
       <main className="chat">
-        {activeId === null ? (
+        <div className="mobile-bar">
+          <button type="button" className="icon-button" onClick={() => setSidebarOpen(true)} aria-label="메뉴 열기">
+            ☰
+          </button>
+          <span className="brand-inline">lawca</span>
+          <span className="mobile-title">
+            {view === 'deadlines' ? '기한' : (summaries.find((c) => c.id === activeId)?.title ?? '새 대화')}
+          </span>
+        </div>
+        {view === 'deadlines' ? (
+          <DeadlinesView onOpenFile={(fileId, name) => setPreview({ fileId, name, page: 1 })} />
+        ) : activeId === null ? (
           <div className="empty">
             <h1>무엇을 도와드릴까요?</h1>
             <p className="muted">

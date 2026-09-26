@@ -1,7 +1,7 @@
 """DB 테이블 정의.
 
-지금 저장하는 것: 대화·메시지, 첨부 파일, 사건·당사자, 문서(추출 결과), 감사 기록.
-기한 확정(Deadline)과 LangGraph 작업(Job)은 해당 기능을 만들 때 추가한다.
+지금 저장하는 것: 대화·메시지, 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 감사 기록.
+LangGraph 작업(Job)은 해당 기능을 만들 때 추가한다.
 """
 
 from __future__ import annotations
@@ -134,6 +134,39 @@ class Document(Timestamped, Base):
     issues: Mapped[list[Any]] = mapped_column(default=list)
 
     case: Mapped[Case | None] = relationship(back_populates="documents")
+    file: Mapped[File] = relationship()
+
+
+class Deadline(Timestamped, Base):
+    """사람이 확정한 기한. 서버가 다시 계산한 값을 저장한다(화면이 보낸 날짜를 믿지 않는다)."""
+
+    __tablename__ = "deadlines"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_uuid)
+    document_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("documents.id"), index=True)
+    case_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("cases.id"), index=True)
+    label: Mapped[str] = mapped_column(String(100))
+    kind: Mapped[str] = mapped_column(String(16))
+    """'statutory'(법정 기간) 또는 'designated'(문서가 정한 기간)."""
+    rule_id: Mapped[str | None] = mapped_column(String(60))
+    period_amount: Mapped[int] = mapped_column(Integer)
+    period_unit: Mapped[str] = mapped_column(String(4))
+    event_date: Mapped[date] = mapped_column(Date)
+    """송달일(사람이 입력)."""
+    service_kind: Mapped[str] = mapped_column(String(30))
+    count_start: Mapped[date] = mapped_column(Date)
+    nominal_end: Mapped[date] = mapped_column(Date)
+    deadline: Mapped[date] = mapped_column(Date, index=True)
+    extended_over: Mapped[list[Any]] = mapped_column(default=list)
+    basis: Mapped[list[Any]] = mapped_column(default=list)
+    warnings: Mapped[list[Any]] = mapped_column(default=list)
+    status: Mapped[str] = mapped_column(String(16), default="confirmed", index=True)
+    """confirmed(확정) | done(완료) | cancelled(취소)."""
+    confirmed_by: Mapped[str] = mapped_column(String(100))
+    status_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    document: Mapped[Document] = relationship()
+    case: Mapped[Case | None] = relationship()
 
 
 class AuditLog(Base):
