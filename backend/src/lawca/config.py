@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -17,6 +18,15 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    # 어떤 LLM을 쓸지. ollama는 이 PC(또는 법인 서버)에서 돌아서 문서가 밖으로 나가지 않고 사용량 한도가 없다.
+    llm_provider: Literal["gemini", "ollama"] = Field(default="gemini", validation_alias="LLM_PROVIDER")
+    ollama_url: str = Field(default="http://localhost:11434", validation_alias="OLLAMA_URL")
+    ollama_model: str = Field(default="gemma4:e4b", validation_alias="OLLAMA_MODEL")
+    # GPU에 올릴 층 수. 0이면 CPU만 쓴다(GPU 드라이버가 맞지 않을 때). 비우면 Ollama가 정한다.
+    ollama_num_gpu: int | None = Field(default=None, validation_alias="OLLAMA_NUM_GPU")
+    # 스캔본 PDF를 이미지로 보낼 때 최대 쪽수. CPU에서는 쪽마다 오래 걸린다.
+    ollama_max_image_pages: int = Field(default=3, validation_alias="OLLAMA_MAX_IMAGE_PAGES")
 
     gemini_api_key: str | None = Field(default=None, validation_alias=AliasChoices("GEMINI_API", "GEMINI_API_KEY"))
     # 별칭(gemini-flash-latest 등)은 가리키는 모델이 바뀌어 평가를 재현할 수 없으므로 버전을 고정한다.

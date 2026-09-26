@@ -125,3 +125,36 @@ def test_extractor_raises_when_every_model_is_unavailable(monkeypatch):
     monkeypatch.setattr(extractor, "_extract_with", busy)
     with pytest.raises(ModelUnavailableError):
         extractor.extract(b"%PDF")
+
+
+# 정규화
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("2026. 9. 15.", "2026-09-15"),
+        ("2026.09.15", "2026-09-15"),
+        ("2026년 9월 15일", "2026-09-15"),
+        ("2026-09-15", "2026-09-15"),
+        ("2026. 2. 30.", "2026. 2. 30."),  # 없는 날짜는 그대로 두고 검증 단계가 잡는다
+        ("9월 15일", "9월 15일"),
+    ],
+)
+def test_normalize_korean_dates(raw, expected):
+    from lawca.extraction.normalize import normalize_date
+
+    assert normalize_date(raw) == expected
+
+
+def test_normalize_keeps_evidence_and_fixes_values():
+    from lawca.extraction.normalize import normalize
+
+    doc = correction_order(
+        issued_date=TextField(value="2026. 9. 15.", evidence=ev("2026. 9. 15.")),
+        case_number=TextField(value="2026가단 51234", evidence=ev("2026가단51234")),
+    )
+    fixed = normalize(doc)
+    assert fixed.issued_date.value == "2026-09-15" and fixed.issued_date.evidence.quote == "2026. 9. 15."
+    assert fixed.case_number.value == "2026가단51234"
+    assert validate(fixed, [PAGE], TODAY) == []

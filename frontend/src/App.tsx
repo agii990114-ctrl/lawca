@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createConversation,
   getConversation,
+  getHealth,
   listConversations,
   streamChat,
   uploadFile,
   type ChatEvent,
   type ConversationSummary,
+  type Health,
 } from './api'
 import Composer from './chat/Composer'
 import DeadlinesView from './DeadlinesView'
@@ -46,6 +48,7 @@ export default function App() {
   // 좁은 화면에서만 쓰는 사이드바 열림 상태
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [health, setHealth] = useState<Health | null>(null)
   const [threadError, setThreadError] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -68,6 +71,12 @@ export default function App() {
   }, [])
 
   useEffect(refreshList, [refreshList])
+
+  useEffect(() => {
+    getHealth()
+      .then(setHealth)
+      .catch(() => setHealth(null))
+  }, [])
 
   useEffect(() => {
     threadEnd.current?.scrollIntoView({ block: 'end' })
@@ -250,8 +259,10 @@ export default function App() {
           <div className="empty">
             <h1>무엇을 도와드릴까요?</h1>
             <p className="muted">
-              법원 문서 PDF를 첨부하면 내용을 읽고 기한과 할 일을 정리합니다. 개발 단계이므로 실제 의뢰인 문서는 올리지
-              마세요(Gemini API로 전송됩니다).
+              법원 문서 PDF를 첨부하면 내용을 읽고 기한과 할 일을 정리합니다.{' '}
+              {health?.provider === 'ollama'
+                ? `문서는 이 PC의 로컬 모델(${health.models[0]})로 처리되어 외부로 전송되지 않습니다. 로컬 모델이라 응답에 1분 넘게 걸릴 수 있습니다.`
+                : '개발 단계이므로 실제 의뢰인 문서는 올리지 마세요(Gemini API로 전송됩니다).'}
             </p>
             {composer}
             <div className="examples">

@@ -8,12 +8,13 @@ from datetime import date
 from lawca.api.schemas import DocumentOut, IssueOut, PeriodOut, SuggestionOut
 from lawca.db.models import File
 from lawca.extraction.gemini import Extractor
+from lawca.extraction.normalize import normalize
 from lawca.extraction.validate import has_text, pdf_text_pages, validate
 from lawca.workflow import checklist, suggest_deadlines
 
 
 def analyze(stored: File, extractor: Extractor, today: date) -> DocumentOut:
-    doc = extractor.extract(stored.data)
+    doc = normalize(extractor.extract(stored.data))
     pages = pdf_text_pages(stored.data)
     return DocumentOut(
         file_id=str(stored.id),

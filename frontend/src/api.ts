@@ -188,6 +188,14 @@ async function getJson<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json()
 }
 
+export interface Health {
+  provider: 'gemini' | 'ollama'
+  models: string[]
+  configured: boolean
+}
+
+export const getHealth = () => getJson<Health>('/api/health')
+
 export const listConversations = () => getJson<ConversationSummary[]>('/api/conversations')
 export const createConversation = () => getJson<ConversationSummary>('/api/conversations', { method: 'POST' })
 export const getConversation = (id: string) => getJson<ConversationDetail>(`/api/conversations/${id}`)
