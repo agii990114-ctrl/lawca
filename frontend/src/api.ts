@@ -1,4 +1,4 @@
-// 백엔드(lawca.api.app) 응답 형식. 백엔드를 바꾸면 여기도 함께 고친다.
+// 백엔드(lawca.api) 요청·응답 형식. 백엔드를 바꾸면 여기도 함께 고친다.
 
 export type Unit = '일' | '주' | '월' | '년'
 
@@ -51,7 +51,7 @@ export interface Suggestion {
 }
 
 export interface DocumentResult {
-  id: string
+  file_id: string
   filename: string
   model: string
   text_available: boolean
@@ -60,6 +60,8 @@ export interface DocumentResult {
   suggestions: Suggestion[]
   checklist: string[]
 }
+
+export type Card = { kind: 'document' } & DocumentResult
 
 export interface DeadlineResult {
   event_date: string
@@ -79,28 +81,87 @@ export interface DeadlineRequest {
   deemed_electronic_service: boolean
 }
 
-async function request<T>(url: string, init: RequestInit): Promise<T> {
-  const res = await fetch(url, init)
-  if (!res.ok) {
-    const body = await res.json().catch(() => null)
-    const detail = typeof body?.detail === 'string' ? body.detail : `요청이 실패했습니다(${res.status}).`
-    throw new Error(detail)
-  }
-  return res.json() as Promise<T>
+export interface UploadedFile {
+  id: string
+  name: string
+  size: number
+  mime: string
+  pages: number | null
 }
 
-export function uploadDocument(file: File): Promise<DocumentResult> {
-  const form = new FormData()
-  form.append('file', file)
-  return request('/api/documents', { method: 'POST', body: form })
+export type ChatEvent =
+  | { type: 'status'; id: string; label: string; state: 'running' | 'done' | 'error' }
+  | { type: 'text'; delta: string }
+  | { type: 'card'; card: Card }
+  | { type: 'done' }
+
+async function errorMessage(res: Response): Promise<string> {
+  const body = await res.json().catch(() => null)
+  return typeof body?.detail === 'string' ? body.detail : `요청이 실패했습니다(${res.status}).`
 }
 
-export function computeDeadline(req: DeadlineRequest): Promise<DeadlineResult> {
-  return request('/api/deadlines', {
+export async function computeDeadline(req: DeadlineRequest): Promise<DeadlineResult> {
+  const res = await fetch('/api/deadlines', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
   })
+  if (!res.ok) throw new Error(await errorMessage(res))
+  return res.json()
 }
 
-export const pdfUrl = (id: string, page = 1) => `/api/documents/${id}/pdf#page=${page}`
+// 진행률을 받으려고 fetch 대신 XMLHttpRequest를 쓴다.
+export function uploadFile(file: File, onProgress: (ratio: number) => void): Promise<UploadedFile> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', '/api/files')
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total)
+    xhr.onload = () => {
+      const body = (() => {
+        try {
+          return JSON.parse(xhr.responseText)
+        } catch {
+          return null
+        }
+      })()
+      if (xhr.status >= 200 && xhr.status < 300) resolve(body)
+      else reject(new Error(typeof body?.detail === 'string' ? body.detail : `업로드에 실패했습니다(${xhr.status}).`))
+    }
+    xhr.onerror = () => reject(new Error('서버에 연결하지 못했습니다.'))
+    const form = new FormData()
+    form.append('file', file)
+    xhr.send(form)
+  })
+}
+
+// 서버가 보내는 SSE(data: {...}\n\n)를 읽어 이벤트마다 onEvent를 부른다.
+export async function streamChat(
+  req: { message: string; file_ids: string[] },
+  onEvent: (event: ChatEvent) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+    signal,
+  })
+  if (!res.ok || !res.body) throw new Error(await errorMessage(res))
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+  let buffer = ''
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += value
+    let boundary
+    while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+      const chunk = buffer.slice(0, boundary)
+      buffer = buffer.slice(boundary + 2)
+      for (const line of chunk.split('\n')) {
+        if (line.startsWith('data: ')) onEvent(JSON.parse(line.slice(6)))
+      }
+    }
+  }
+}
+
+export const fileUrl = (id: string, page = 1) => `/api/files/${id}/content#page=${page}`

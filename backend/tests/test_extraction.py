@@ -1,11 +1,12 @@
 """추출 검증, 문서 종류별 제안, API 테스트. Gemini는 호출하지 않는다."""
 
+import json
 from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
 
-from lawca.api.app import app, get_extractor
+from lawca.api.app import app, get_extractor_factory
 from lawca.extraction.schema import CourtDocument, DesignatedPeriod, DocumentType, Evidence, Party, TextField
 from lawca.extraction.validate import validate
 from lawca.workflow import checklist, suggest_deadlines
@@ -110,24 +111,75 @@ class FakeExtractor:
 
 @pytest.fixture
 def client():
-    app.dependency_overrides[get_extractor] = lambda: FakeExtractor(correction_order())
+    app.dependency_overrides[get_extractor_factory] = lambda: (lambda: FakeExtractor(correction_order()))
     yield TestClient(app)
     app.dependency_overrides.clear()
 
 
-def test_upload_returns_extraction_suggestions_and_checklist(client):
-    res = client.post("/api/documents", files={"file": ("order.pdf", b"%PDF-1.4 fake", "application/pdf")})
+def events_of(res) -> list[dict]:
+    return [json.loads(line[len("data: "):]) for line in res.text.splitlines() if line.startswith("data: ")]
+
+
+def upload(client, name="order.pdf", data=b"%PDF-1.4 fake"):
+    return client.post("/api/files", files={"file": (name, data, "application/pdf")})
+
+
+def test_upload_file_returns_metadata_and_content(client):
+    res = upload(client)
     assert res.status_code == 200
     body = res.json()
-    assert body["extraction"]["case_number"]["value"] == "2026가단51234"
-    assert body["text_available"] is False
-    assert body["suggestions"][0]["period"] == {"amount": 7, "unit": "일", "label": "7일"}
-    assert client.get(f"/api/documents/{body['id']}/pdf").content == b"%PDF-1.4 fake"
+    assert (body["name"], body["size"], body["mime"]) == ("order.pdf", 13, "application/pdf")
+    assert client.get(f"/api/files/{body['id']}/content").content == b"%PDF-1.4 fake"
 
 
 def test_upload_rejects_non_pdf(client):
-    res = client.post("/api/documents", files={"file": ("a.txt", b"hello", "text/plain")})
+    res = upload(client, "a.txt", b"hello")
     assert res.status_code == 415
+
+
+def test_chat_with_pdf_streams_status_text_and_document_card(client):
+    file_id = upload(client).json()["id"]
+    events = events_of(client.post("/api/chat", json={"message": "", "file_ids": [file_id]}))
+    kinds = [e["type"] for e in events]
+    assert kinds == ["status", "status", "text", "card", "done"]
+    assert [e["state"] for e in events if e["type"] == "status"] == ["running", "done"]
+    card = events[3]["card"]
+    assert card["kind"] == "document"
+    assert card["file_id"] == file_id
+    assert card["extraction"]["case_number"]["value"] == "2026가단51234"
+    assert card["suggestions"][0]["period"] == {"amount": 7, "unit": "일", "label": "7일"}
+    assert "보정명령" in events[2]["delta"]
+
+
+def test_chat_text_only_explains_what_is_supported(client):
+    events = events_of(client.post("/api/chat", json={"message": "이번 주 기한 알려줘", "file_ids": []}))
+    assert [e["type"] for e in events] == ["text", "done"]
+    assert "PDF" in events[0]["delta"]
+
+
+def test_chat_with_unknown_file_asks_to_reupload(client):
+    events = events_of(client.post("/api/chat", json={"message": "", "file_ids": ["nope"]}))
+    assert "다시 올려" in events[0]["delta"]
+
+
+def test_chat_reports_unavailable_model_per_file():
+    from lawca.extraction.gemini import ModelUnavailableError
+
+    class Busy:
+        model = "busy"
+
+        def extract(self, pdf):
+            raise ModelUnavailableError("모델이 혼잡합니다.")
+
+    app.dependency_overrides[get_extractor_factory] = lambda: (lambda: Busy())
+    try:
+        client = TestClient(app)
+        file_id = upload(client).json()["id"]
+        events = events_of(client.post("/api/chat", json={"file_ids": [file_id]}))
+    finally:
+        app.dependency_overrides.clear()
+    assert [e.get("state") for e in events if e["type"] == "status"] == ["running", "error"]
+    assert "혼잡" in [e for e in events if e["type"] == "text"][0]["delta"]
 
 
 def test_deadline_endpoint_statutory():

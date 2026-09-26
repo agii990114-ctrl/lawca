@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { computeDeadline, type DeadlineResult, type Suggestion, type Unit } from './api'
 import { formatDate, todayIso } from './format'
 
@@ -21,6 +21,7 @@ export default function DeadlinePanel({ suggestions }: { suggestions: Suggestion
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
+  const radioName = useId()
   const selected = choice === MANUAL ? null : suggestions[choice]
 
   async function calculate() {
@@ -47,13 +48,13 @@ export default function DeadlinePanel({ suggestions }: { suggestions: Suggestion
   }
 
   return (
-    <section className="panel">
-      <h2>기한 계산</h2>
+    <section className="card">
+      <h3>기한 계산</h3>
       <fieldset>
         <legend>기간</legend>
         {suggestions.map((s, i) => (
           <label key={s.label} className="choice">
-            <input type="radio" name="period" checked={choice === i} onChange={() => setChoice(i)} />
+            <input type="radio" name={radioName} checked={choice === i} onChange={() => setChoice(i)} />
             <span>
               {s.label}
               {s.period && s.kind === 'statutory' ? ` · ${s.period.label}` : ''}
@@ -62,7 +63,7 @@ export default function DeadlinePanel({ suggestions }: { suggestions: Suggestion
           </label>
         ))}
         <label className="choice">
-          <input type="radio" name="period" checked={choice === MANUAL} onChange={() => setChoice(MANUAL)} />
+          <input type="radio" name={radioName} checked={choice === MANUAL} onChange={() => setChoice(MANUAL)} />
           <span>직접 입력</span>
           {choice === MANUAL && (
             <span className="inline-inputs">

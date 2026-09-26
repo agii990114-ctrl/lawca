@@ -1,37 +1,40 @@
-"""lawca HTTP API. 로드맵 2단계: 문서 추출, 기한 계산, 체크리스트.
+"""lawca HTTP API.
 
-문서는 메모리에만 보관한다. 서버를 다시 띄우면 사라진다(DB는 다음 단계).
+파일은 아직 메모리에만 보관한다. 서버를 다시 띄우면 사라진다(DB는 다음 단계).
 """
 
 from __future__ import annotations
 
-import uuid
+import json
+from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import Response
-from pydantic import BaseModel
+from fastapi.responses import Response, StreamingResponse
 
+from lawca.api.chat import chat_events
+from lawca.api.files import FileStore, UnsupportedFileError
+from lawca.api.schemas import ChatRequest, DeadlineOut, DeadlineRequest, FileOut, PeriodOut
 from lawca.config import Settings, get_settings
 from lawca.deadlines import (
     CalendarCoverageError,
-    DeadlineResult,
     Period,
     Unit,
     compute_designated_deadline,
     compute_statutory_deadline,
     load_rules,
 )
-from lawca.extraction.gemini import ExtractionError, Extractor, GeminiExtractor, ModelUnavailableError
-from lawca.extraction.schema import CourtDocument
-from lawca.extraction.validate import has_text, pdf_text_pages, validate
-from lawca.workflow import checklist, suggest_deadlines
+from lawca.extraction.gemini import Extractor, GeminiExtractor
 
 app = FastAPI(title="lawca API", version="0.1.0")
 
-_documents: dict[str, tuple[str, bytes]] = {}
+file_store = FileStore()
+
+
+def get_files() -> FileStore:
+    return file_store
 
 
 def get_extractor(settings: Annotated[Settings, Depends(get_settings)]) -> Extractor:
@@ -40,75 +43,9 @@ def get_extractor(settings: Annotated[Settings, Depends(get_settings)]) -> Extra
     return GeminiExtractor(settings.gemini_api_key, settings.gemini_models)
 
 
-class PeriodOut(BaseModel):
-    amount: int
-    unit: Literal["일", "주", "월", "년"]
-    label: str
-
-    @classmethod
-    def of(cls, period: Period) -> PeriodOut:
-        return cls(amount=period.amount, unit=period.unit.value, label=str(period))
-
-
-class IssueOut(BaseModel):
-    field: str
-    level: Literal["error", "warning"]
-    message: str
-
-
-class SuggestionOut(BaseModel):
-    kind: Literal["statutory", "designated"]
-    label: str
-    rule_id: str | None
-    period: PeriodOut | None
-    note: str | None
-
-
-class DocumentOut(BaseModel):
-    id: str
-    filename: str
-    model: str
-    text_available: bool
-    extraction: CourtDocument
-    issues: list[IssueOut]
-    suggestions: list[SuggestionOut]
-    checklist: list[str]
-
-
-class DeadlineRequest(BaseModel):
-    event_date: date
-    rule_id: str | None = None
-    period: PeriodOut | None = None
-    deemed_electronic_service: bool = False
-
-
-class ExtendedDay(BaseModel):
-    day: date
-    reason: str
-
-
-class DeadlineOut(BaseModel):
-    event_date: date
-    period: PeriodOut
-    count_start: date
-    nominal_end: date
-    deadline: date
-    extended_over: list[ExtendedDay]
-    basis: list[str]
-    warnings: list[str]
-
-    @classmethod
-    def of(cls, r: DeadlineResult) -> DeadlineOut:
-        return cls(
-            event_date=r.event_date,
-            period=PeriodOut.of(r.period),
-            count_start=r.count_start,
-            nominal_end=r.nominal_end,
-            deadline=r.deadline,
-            extended_over=[ExtendedDay(day=d, reason=why) for d, why in r.extended_over],
-            basis=list(r.basis),
-            warnings=list(r.warnings),
-        )
+def get_extractor_factory(settings: Annotated[Settings, Depends(get_settings)]) -> Callable[[], Extractor]:
+    """추출기를 만드는 함수를 넘긴다. 글만 보낸 요청은 키가 없어도 응답하도록 필요할 때 만든다."""
+    return lambda: get_extractor(settings)
 
 
 @app.get("/api/health")
@@ -128,55 +65,46 @@ def rules() -> list[dict[str, object]]:
     ]
 
 
-@app.post("/api/documents")
-def upload_document(
+@app.post("/api/files")
+def upload_file(
     file: Annotated[UploadFile, File()],
-    extractor: Annotated[Extractor, Depends(get_extractor)],
+    files: Annotated[FileStore, Depends(get_files)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> DocumentOut:
-    pdf = file.file.read(settings.max_upload_mb * 1024 * 1024 + 1)
-    if len(pdf) > settings.max_upload_mb * 1024 * 1024:
+) -> FileOut:
+    limit = settings.max_upload_mb * 1024 * 1024
+    data = file.file.read(limit + 1)
+    if len(data) > limit:
         raise HTTPException(413, f"{settings.max_upload_mb}MB를 넘는 파일은 올릴 수 없습니다.")
-    if not pdf.startswith(b"%PDF"):
-        raise HTTPException(415, "PDF 파일만 올릴 수 있습니다.")
-
     try:
-        doc = extractor.extract(pdf)
-    except ModelUnavailableError as exc:
-        raise HTTPException(503, str(exc)) from exc
-    except ExtractionError as exc:
-        raise HTTPException(502, str(exc)) from exc
+        stored = files.put(file.filename or "document.pdf", data)
+    except UnsupportedFileError as exc:
+        raise HTTPException(415, str(exc)) from exc
+    return FileOut(id=stored.id, name=stored.name, size=len(stored.data), mime=stored.mime, pages=stored.pages)
 
-    pages = pdf_text_pages(pdf)
-    doc_id = uuid.uuid4().hex
-    _documents[doc_id] = (file.filename or "document.pdf", pdf)
-    return DocumentOut(
-        id=doc_id,
-        filename=file.filename or "document.pdf",
-        model=extractor.model,
-        text_available=has_text(pages),
-        extraction=doc,
-        issues=[IssueOut(**asdict(i)) for i in validate(doc, pages, date.today())],
-        suggestions=[
-            SuggestionOut(
-                kind=s.kind,
-                label=s.label,
-                rule_id=s.rule_id,
-                period=PeriodOut.of(s.period) if s.period else None,
-                note=s.note,
-            )
-            for s in suggest_deadlines(doc)
-        ],
-        checklist=checklist(doc),
+
+@app.get("/api/files/{file_id}/content")
+def file_content(file_id: str, files: Annotated[FileStore, Depends(get_files)]) -> Response:
+    stored = files.get(file_id)
+    if stored is None:
+        raise HTTPException(404, "파일을 찾을 수 없습니다. 서버를 다시 띄우면 파일이 사라집니다.")
+    return Response(stored.data, media_type=stored.mime)
+
+
+def _sse(events: Iterator[dict[str, object]]) -> Iterator[str]:
+    for event in events:
+        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
+@app.post("/api/chat")
+def chat(
+    req: ChatRequest,
+    files: Annotated[FileStore, Depends(get_files)],
+    make_extractor: Annotated[Callable[[], Extractor], Depends(get_extractor_factory)],
+) -> StreamingResponse:
+    events = chat_events(req, files, make_extractor, date.today())
+    return StreamingResponse(
+        _sse(events), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )
-
-
-@app.get("/api/documents/{doc_id}/pdf")
-def document_pdf(doc_id: str) -> Response:
-    if doc_id not in _documents:
-        raise HTTPException(404, "문서를 찾을 수 없습니다. 서버를 다시 띄우면 문서가 사라집니다.")
-    _, pdf = _documents[doc_id]
-    return Response(pdf, media_type="application/pdf")
 
 
 @app.post("/api/deadlines")
