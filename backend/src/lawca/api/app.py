@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from lawca.agent.graph import GRAPH_VERSION, Deps, ModelsNotConfigured, graph_for
 from lawca.agent.llm import ChatModel, Turn, gemini_models
 from lawca.api.chat import answer_summary, chat_events, resume_events
+from lawca.api.deps import DB, CurrentUser, Lawyer, SessionFactory, Worker
+from lawca.api.users import router as users_router
 from lawca.api.records import record_out
 from lawca.api.schemas import (
     SERVICE_LABELS,
@@ -30,6 +32,7 @@ from lawca.api.schemas import (
     DeadlineRecordOut,
     DeadlineRequest,
     DeadlineStatusUpdate,
+    DraftOut,
     FileOut,
     JobOut,
     MessageOut,
@@ -39,7 +42,7 @@ from lawca.api.schemas import (
 from lawca.config import Settings, get_settings
 from lawca.db import repo
 from lawca.db.models import Conversation, Deadline, File as FileRow, Job, Message
-from lawca.db.session import get_checkpointer, get_session_factory
+from lawca.db.session import get_checkpointer
 from lawca.deadlines import (
     CalendarCoverageError,
     DeadlineResult,
@@ -55,16 +58,9 @@ from lawca.ollama import OllamaChat, OllamaClient, OllamaExtractor
 
 app = FastAPI(title="lawca API", version="0.1.0")
 
-SessionFactory = Annotated[sessionmaker[Session], Depends(get_session_factory)]
+app.include_router(users_router)
+
 UNITS = {u.value: u for u in Unit}
-
-
-def get_session(factory: SessionFactory) -> Iterator[Session]:
-    with factory() as session:
-        yield session
-
-
-DB = Annotated[Session, Depends(get_session)]
 
 
 def _ollama(settings: Settings) -> OllamaClient:
@@ -131,7 +127,7 @@ def health(settings: Annotated[Settings, Depends(get_settings)]) -> dict[str, ob
 
 
 @app.get("/api/rules")
-def rules() -> list[dict[str, object]]:
+def rules(_: CurrentUser) -> list[dict[str, object]]:
     return [
         {**asdict(rule), "period": PeriodOut.of(rule.period).model_dump(), "verified_on": rule.verified_on.isoformat()}
         for rule in load_rules().values()
@@ -144,6 +140,7 @@ def rules() -> list[dict[str, object]]:
 @app.post("/api/files")
 def upload_file(
     file: Annotated[UploadFile, File()],
+    _: Worker,
     session: DB,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> FileOut:
@@ -160,7 +157,7 @@ def upload_file(
 
 
 @app.get("/api/files/{file_id}/content")
-def file_content(file_id: str, session: DB) -> Response:
+def file_content(file_id: str, _: Worker, session: DB) -> Response:
     row = repo.get_file(session, file_id)
     if row is None:
         raise HTTPException(404, "파일을 찾을 수 없습니다.")
@@ -174,20 +171,20 @@ def file_content(file_id: str, session: DB) -> Response:
 
 
 @app.get("/api/conversations")
-def conversations(session: DB) -> list[ConversationSummary]:
-    return [summary_out(c) for c in repo.list_conversations(session)]
+def conversations(user: Worker, session: DB) -> list[ConversationSummary]:
+    return [summary_out(c) for c in repo.list_conversations(session, user.id)]
 
 
 @app.post("/api/conversations")
-def create_conversation(session: DB) -> ConversationSummary:
-    conversation = repo.create_conversation(session)
+def create_conversation(user: Worker, session: DB) -> ConversationSummary:
+    conversation = repo.create_conversation(session, user.id)
     session.commit()
     return summary_out(conversation)
 
 
 @app.get("/api/conversations/{conversation_id}")
-def conversation(conversation_id: str, session: DB) -> ConversationDetail:
-    c = repo.get_conversation(session, conversation_id)
+def conversation(conversation_id: str, user: Worker, session: DB) -> ConversationDetail:
+    c = repo.get_conversation(session, conversation_id, user.id)
     if c is None:
         raise HTTPException(404, "대화를 찾을 수 없습니다.")
     return ConversationDetail(**summary_out(c).model_dump(), messages=[message_out(m) for m in c.messages])
@@ -242,6 +239,7 @@ def _respond(
     make_events: Callable[[Deps], Iterator[dict[str, Any]]],
     make_extractor: Callable[[], Extractor],
     make_models: Callable[[], list[ChatModel]],
+    actor: str,
 ) -> StreamingResponse:
     """그래프 이벤트를 SSE로 흘려보내고, 끝나면 답변 메시지와 작업(Job) 상태를 저장한다.
 
@@ -253,6 +251,7 @@ def _respond(
         state = "done"
         question: dict[str, Any] | None = None
         with factory() as session:
+            session.info["actor"] = actor
 
             def on_document(result: Any) -> str:
                 document = repo.save_document(session, result)
@@ -302,6 +301,7 @@ def _respond(
 @app.post("/api/chat")
 def chat(
     req: ChatRequest,
+    user: Worker,
     factory: SessionFactory,
     make_extractor: ExtractorFactory,
     make_models: ModelsFactory,
@@ -309,7 +309,8 @@ def chat(
 ) -> StreamingResponse:
     """사용자 메시지를 저장하고 답변을 SSE로 흘려보낸다. 답변은 끝나거나 중지되면 저장한다."""
     with factory() as session:
-        conversation = repo.get_conversation(session, req.conversation_id)
+        session.info["actor"] = user.username
+        conversation = repo.get_conversation(session, req.conversation_id, user.id)
         if conversation is None:
             raise HTTPException(404, "대화를 찾을 수 없습니다.")
         history = _history(conversation)
@@ -327,14 +328,22 @@ def chat(
         lambda deps: chat_events(req, deps, history, graph, str(job_id)),
         make_extractor,
         make_models,
+        user.username,
     )
 
 
-@app.get("/api/jobs/{job_id}")
-def job_status(job_id: str, session: DB) -> JobOut:
+def _own_job(session: Session, job_id: str, user: CurrentUser) -> Job:
+    """본인 대화의 작업. 남의 작업은 없는 것으로 본다."""
     job = repo.get_job(session, job_id)
-    if job is None:
+    conversation = session.get(Conversation, job.conversation_id) if job else None
+    if job is None or conversation is None or conversation.user_id != user.id:
         raise HTTPException(404, "작업을 찾을 수 없습니다.")
+    return job
+
+
+@app.get("/api/jobs/{job_id}")
+def job_status(job_id: str, user: Worker, session: DB) -> JobOut:
+    job = _own_job(session, job_id, user)
     return JobOut(id=str(job.id), status=job.status, question=job.question)
 
 
@@ -342,6 +351,7 @@ def job_status(job_id: str, session: DB) -> JobOut:
 def resume_job(
     job_id: str,
     req: ResumeRequest,
+    user: Worker,
     factory: SessionFactory,
     make_extractor: ExtractorFactory,
     make_models: ModelsFactory,
@@ -349,9 +359,8 @@ def resume_job(
 ) -> StreamingResponse:
     """되묻기에 답하고 멈춘 곳에서 이어간다. 답은 사용자 메시지로 대화에 남긴다."""
     with factory() as session:
-        job = repo.get_job(session, job_id)
-        if job is None:
-            raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        session.info["actor"] = user.username
+        job = _own_job(session, job_id, user)
         if job.status != "waiting" or job.question is None:
             raise HTTPException(409, "이미 답했거나 끝난 작업입니다.")
         if job.graph_version != GRAPH_VERSION:
@@ -371,6 +380,7 @@ def resume_job(
         lambda deps: resume_events(req.answers, deps, graph, str(parsed_job_id)),
         make_extractor,
         make_models,
+        user.username,
     )
 
 
@@ -402,13 +412,13 @@ def _one(session: Session, deadline_id: uuid.UUID) -> DeadlineRecordOut:
 
 
 @app.post("/api/deadlines")
-def deadline(req: DeadlineRequest) -> DeadlineOut:
+def deadline(req: DeadlineRequest, _: Worker) -> DeadlineOut:
     """기한을 계산만 한다. 저장하지 않는다."""
     return DeadlineOut.of(_compute(req.rule_id, req.period, req.event_date, req.deemed_electronic_service))
 
 
 @app.post("/api/deadlines/confirm", status_code=201)
-def confirm_deadline(req: DeadlineConfirmRequest, session: DB) -> DeadlineRecordOut:
+def confirm_deadline(req: DeadlineConfirmRequest, _: Worker, session: DB) -> DeadlineRecordOut:
     """기한을 확정해 저장한다. 화면이 계산한 날짜가 아니라 서버가 다시 계산한 값을 저장한다."""
     document = repo.find_document(session, req.document_id, req.file_id)
     if document is None:
@@ -434,6 +444,7 @@ def _statuses(status: str | None) -> list[str] | None:
 
 @app.get("/api/deadlines")
 def deadlines(
+    _: Worker,
     session: DB,
     status: Annotated[str | None, Query(description="쉼표로 구분. 예: confirmed,done")] = None,
     document_id: str | None = None,
@@ -442,7 +453,10 @@ def deadlines(
 
 
 @app.patch("/api/deadlines/{deadline_id}")
-def update_deadline(deadline_id: str, req: DeadlineStatusUpdate, session: DB) -> DeadlineRecordOut:
+def update_deadline(deadline_id: str, req: DeadlineStatusUpdate, user: Worker, session: DB) -> DeadlineRecordOut:
+    """사무원은 확정한 기한을 '완료'로만 바꿀 수 있다. 취소와 되돌리기는 변호사가 한다."""
+    if req.status != "done" and user.role != "lawyer":
+        raise HTTPException(403, "확정한 기한의 취소·되돌리기는 변호사만 할 수 있습니다.")
     saved = repo.set_deadline_status(session, deadline_id, req.status)
     if saved is None:
         raise HTTPException(404, "기한을 찾을 수 없습니다.")
@@ -467,7 +481,7 @@ def _description(d: Deadline) -> str:
 
 
 @app.get("/api/deadlines/export.ics")
-def export_ics(session: DB) -> Response:
+def export_ics(_: Worker, session: DB) -> Response:
     """확정 상태인 기한을 캘린더 파일로 내보낸다. 완료·취소한 기한은 넣지 않는다."""
     events = [
         IcsEvent(uid=f"{d.id}@lawca", day=d.deadline, summary=_title(d), description=_description(d))
@@ -481,7 +495,7 @@ def export_ics(session: DB) -> Response:
 
 
 @app.get("/api/deadlines/export.csv")
-def export_csv(session: DB) -> Response:
+def export_csv(_: Worker, session: DB) -> Response:
     """취소하지 않은 기한을 엑셀에서 바로 열 수 있는 CSV(UTF-8 BOM)로 내보낸다."""
     status_labels = {"confirmed": "확정", "done": "완료", "cancelled": "취소"}
     weekdays = "월화수목금토일"
@@ -514,3 +528,31 @@ def export_csv(session: DB) -> Response:
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": 'attachment; filename="lawca-deadlines.csv"'},
     )
+
+
+# 서식 초안
+
+
+def draft_out(d: Any) -> DraftOut:
+    return DraftOut(
+        id=str(d.id), form_id=d.form_id, created_by=d.created_by, reviewed_by=d.reviewed_by, reviewed_at=d.reviewed_at
+    )
+
+
+@app.get("/api/drafts/{draft_id}")
+def get_draft(draft_id: str, _: Worker, session: DB) -> DraftOut:
+    draft = repo.get_draft(session, draft_id)
+    if draft is None:
+        raise HTTPException(404, "초안을 찾을 수 없습니다.")
+    return draft_out(draft)
+
+
+@app.post("/api/drafts/{draft_id}/review")
+def review_draft(draft_id: str, _: Lawyer, session: DB) -> DraftOut:
+    """변호사가 초안 검토를 마쳤다고 표시한다."""
+    draft = repo.get_draft(session, draft_id)
+    if draft is None:
+        raise HTTPException(404, "초안을 찾을 수 없습니다.")
+    repo.review_draft(session, draft)
+    session.commit()
+    return draft_out(draft)

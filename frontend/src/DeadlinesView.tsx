@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { DEADLINE_EXPORT, listDeadlines, updateDeadlineStatus, type DeadlineRecord, type DeadlineStatus } from './api'
+import { useUser } from './auth/UserContext'
 import { dDay, daysUntil, formatDate } from './format'
 
 const FILTERS: { key: string; label: string; statuses: DeadlineStatus[] }[] = [
@@ -12,6 +13,8 @@ export default function DeadlinesView({ onOpenFile }: { onOpenFile: (fileId: str
   const [filter, setFilter] = useState(FILTERS[0])
   const [items, setItems] = useState<DeadlineRecord[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // 확정한 기한의 취소·되돌리기는 변호사만 한다(서버도 막는다).
+  const canCancel = useUser().role === 'lawyer'
 
   const load = useCallback(() => {
     listDeadlines({ status: filter.statuses })
@@ -117,12 +120,14 @@ export default function DeadlinesView({ onOpenFile }: { onOpenFile: (fileId: str
                           <button type="button" className="secondary small" onClick={() => change(d, 'done')}>
                             완료
                           </button>
-                          <button type="button" className="link-button" onClick={() => change(d, 'cancelled')}>
-                            취소
-                          </button>
+                          {canCancel && (
+                            <button type="button" className="link-button" onClick={() => change(d, 'cancelled')}>
+                              취소
+                            </button>
+                          )}
                         </>
                       )}
-                      {d.status !== 'confirmed' && (
+                      {d.status !== 'confirmed' && canCancel && (
                         <button type="button" className="link-button" onClick={() => change(d, 'confirmed')}>
                           되돌리기
                         </button>

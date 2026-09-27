@@ -1,5 +1,16 @@
 import { useEffect, useId, useState } from 'react'
-import { downloadUrl, getJob, LATER, type DraftCardData, type QuestionCardData, type QuestionField } from '../api'
+import {
+  downloadUrl,
+  getDraft,
+  getJob,
+  LATER,
+  reviewDraft,
+  type DraftCardData,
+  type DraftStatus,
+  type QuestionCardData,
+  type QuestionField,
+} from '../api'
+import { useUser } from '../auth/UserContext'
 
 export type Answer = (jobId: string, answers: Record<string, string>, summary: string) => Promise<void>
 
@@ -134,12 +145,42 @@ function formatSize(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))}KB` : `${(bytes / 1024 / 1024).toFixed(1)}MB`
 }
 
+function reviewedLabel(status: DraftStatus) {
+  const d = new Date(status.reviewed_at!)
+  return `검토 완료 · ${status.reviewed_by} · ${d.getMonth() + 1}/${d.getDate()}`
+}
+
 export function DraftCard({ data }: { data: DraftCardData }) {
+  const isLawyer = useUser().role === 'lawyer'
+  // 카드는 대화에 저장된 그대로이므로 검토 상태는 서버에서 따로 읽는다.
+  const [status, setStatus] = useState<DraftStatus | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    getDraft(data.draft_id)
+      .then(setStatus)
+      .catch(() => setStatus(null))
+  }, [data.draft_id])
+
+  async function review() {
+    setError(null)
+    try {
+      setStatus(await reviewDraft(data.draft_id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const reviewed = status?.reviewed_by != null
   return (
     <section className="card">
       <header className="card-header">
         <h3>초안 · {data.form_name}</h3>
-        <span className="muted">검토 필요</span>
+        {reviewed ? (
+          <span className="review-badge done">{reviewedLabel(status!)}</span>
+        ) : (
+          <span className="review-badge">검토 전</span>
+        )}
       </header>
       <a className="draft-file" href={downloadUrl(data.file_id)} download={data.filename}>
         <span className="file-icon docx" aria-hidden="true">
@@ -161,7 +202,18 @@ export function DraftCard({ data }: { data: DraftCardData }) {
           </div>
         ))}
       </dl>
-      <p className="card-foot">lawca가 만든 초안입니다. 원문과 대조하고 담당 변호사 검토를 거친 뒤 제출하세요.</p>
+      {error && <p className="issue error">{error}</p>}
+      {isLawyer && status && !reviewed && (
+        <div className="review-actions">
+          <button type="button" className="secondary small" onClick={review}>
+            검토 완료로 표시
+          </button>
+        </div>
+      )}
+      <p className="card-foot">
+        lawca가 만든 초안입니다. 원문과 대조하고 담당 변호사 검토를 거친 뒤 제출하세요.
+        {status?.created_by && ` 작성: ${status.created_by}`}
+      </p>
     </section>
   )
 }

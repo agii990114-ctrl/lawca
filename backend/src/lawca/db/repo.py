@@ -6,16 +6,31 @@ import hashlib
 import io
 import re
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from lawca.api.schemas import DocumentOut
-from lawca.db.models import AuditLog, Case, Conversation, Deadline, Document, Draft, File, Job, Message, MessageFile, Party
+from lawca.auth import SESSION_TTL, hash_password, new_token, token_hash, verify_password
+from lawca.db.models import (
+    AuditLog,
+    Case,
+    Conversation,
+    Deadline,
+    Document,
+    Draft,
+    File,
+    Job,
+    Message,
+    MessageFile,
+    Party,
+    User,
+    UserSession,
+)
 from lawca.deadlines import DeadlineResult
 from lawca.extraction.validate import CASE_NUMBER
 
@@ -34,10 +49,96 @@ def _parse_id(value: str) -> uuid.UUID | None:
         return None
 
 
+def actor(session: Session) -> str:
+    """이 세션으로 일하는 사람. API가 로그인한 사용자의 아이디를 session.info에 넣는다."""
+    return session.info.get("actor", SYSTEM_ACTOR)
+
+
 def audit(session: Session, action: str, target_type: str, target_id: object, detail: dict[str, Any]) -> None:
     session.add(
-        AuditLog(actor=SYSTEM_ACTOR, action=action, target_type=target_type, target_id=str(target_id), detail=detail)
+        AuditLog(actor=actor(session), action=action, target_type=target_type, target_id=str(target_id), detail=detail)
     )
+
+
+# 사용자·로그인
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def find_user(session: Session, username: str) -> User | None:
+    """삭제하지 않은 사용자. 아이디는 대소문자를 가리지 않는다."""
+    query = select(User).where(func.lower(User.username) == username.strip().lower(), User.deleted_at.is_(None))
+    return session.scalars(query).first()
+
+
+def get_user(session: Session, user_id: str) -> User | None:
+    parsed = _parse_id(user_id)
+    user = session.get(User, parsed) if parsed else None
+    return user if user is not None and user.deleted_at is None else None
+
+
+def list_users(session: Session) -> list[User]:
+    return list(session.scalars(select(User).where(User.deleted_at.is_(None)).order_by(User.created_at)))
+
+
+def create_user(session: Session, username: str, name: str, role: str, password: str) -> User:
+    user = User(username=username.strip(), name=name.strip(), role=role, password_hash=hash_password(password))
+    session.add(user)
+    session.flush()
+    audit(session, "user.create", "user", user.id, {"username": user.username, "role": role})
+    return user
+
+
+def delete_user(session: Session, user: User) -> None:
+    """사용자를 지운다. 기록을 남기려고 행은 두고 deleted_at만 채운 뒤 로그인 세션을 모두 끊는다."""
+    user.deleted_at = _now()
+    session.execute(delete(UserSession).where(UserSession.user_id == user.id))
+    audit(session, "user.delete", "user", user.id, {"username": user.username})
+    session.flush()
+
+
+def set_password(session: Session, user: User, password: str, *, by_admin: bool) -> None:
+    """비밀번호를 바꾸고 그 사용자의 다른 로그인 세션을 끊는다."""
+    user.password_hash = hash_password(password)
+    session.execute(delete(UserSession).where(UserSession.user_id == user.id))
+    audit(session, "user.password_reset" if by_admin else "user.password_change", "user", user.id, {})
+    session.flush()
+
+
+def authenticate(session: Session, username: str, password: str) -> User | None:
+    user = find_user(session, username)
+    if user is None:
+        verify_password(password, _DUMMY_HASH)  # 없는 아이디도 같은 시간이 걸리게 한다
+        return None
+    return user if verify_password(password, user.password_hash) else None
+
+
+_DUMMY_HASH = hash_password("lawca-dummy-password-1")
+
+
+def start_session(session: Session, user: User) -> str:
+    """로그인 세션을 만들고 쿠키에 넣을 토큰을 돌려준다."""
+    token = new_token()
+    session.add(UserSession(token_hash=token_hash(token), user_id=user.id, expires_at=_now() + SESSION_TTL))
+    session.execute(delete(UserSession).where(UserSession.expires_at < _now()))  # 만료된 세션 정리
+    user.last_login_at = _now()
+    session.info["actor"] = user.username
+    audit(session, "user.login", "user", user.id, {})
+    session.flush()
+    return token
+
+
+def user_for_token(session: Session, token: str) -> User | None:
+    row = session.get(UserSession, token_hash(token))
+    if row is None or row.expires_at < _now() or row.user.deleted_at is not None:
+        return None
+    return row.user
+
+
+def end_session(session: Session, token: str) -> None:
+    session.execute(delete(UserSession).where(UserSession.token_hash == token_hash(token)))
 
 
 # 파일
@@ -75,25 +176,28 @@ def get_file(session: Session, file_id: str) -> File | None:
 # 대화
 
 
-def create_conversation(session: Session) -> Conversation:
-    conversation = Conversation()
+def create_conversation(session: Session, user_id: uuid.UUID | None = None) -> Conversation:
+    conversation = Conversation(user_id=user_id)
     session.add(conversation)
     session.flush()
     return conversation
 
 
-def list_conversations(session: Session, limit: int = 100) -> list[Conversation]:
-    query = select(Conversation).order_by(Conversation.updated_at.desc()).limit(limit)
+def list_conversations(session: Session, user_id: uuid.UUID, limit: int = 100) -> list[Conversation]:
+    query = (
+        select(Conversation).where(Conversation.user_id == user_id).order_by(Conversation.updated_at.desc()).limit(limit)
+    )
     return list(session.scalars(query))
 
 
-def get_conversation(session: Session, conversation_id: str) -> Conversation | None:
+def get_conversation(session: Session, conversation_id: str, user_id: uuid.UUID) -> Conversation | None:
+    """user_id의 대화. 남의 대화는 없는 것으로 본다."""
     parsed = _parse_id(conversation_id)
     if parsed is None:
         return None
     query = (
         select(Conversation)
-        .where(Conversation.id == parsed)
+        .where(Conversation.id == parsed, Conversation.user_id == user_id)
         .options(selectinload(Conversation.messages).selectinload(Message.attachments).selectinload(MessageFile.file))
     )
     return session.scalars(query).first()
@@ -399,6 +503,7 @@ def save_draft(
     job_id: uuid.UUID | None,
 ) -> Draft:
     draft = Draft(
+        created_by=actor(session),
         case_id=case.id if case else None,
         form_id=form_id,
         file_id=file.id,
@@ -409,4 +514,19 @@ def save_draft(
     session.add(draft)
     session.flush()
     audit(session, "draft.create", "draft", draft.id, {"form_id": form_id, "file_id": str(file.id), "blanks": blanks})
+    return draft
+
+
+def get_draft(session: Session, draft_id: str) -> Draft | None:
+    parsed = _parse_id(draft_id)
+    return session.get(Draft, parsed) if parsed else None
+
+
+def review_draft(session: Session, draft: Draft) -> Draft:
+    """변호사가 초안 검토를 마쳤다고 표시한다. 이미 표시했으면 그대로 둔다."""
+    if draft.reviewed_by is None:
+        draft.reviewed_by = actor(session)
+        draft.reviewed_at = _now()
+        audit(session, "draft.review", "draft", draft.id, {"form_id": draft.form_id})
+        session.flush()
     return draft

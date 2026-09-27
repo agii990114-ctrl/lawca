@@ -213,7 +213,14 @@ export type ChatEvent =
   | { type: 'card'; card: Card }
   | { type: 'done' }
 
+// 로그인이 풀리면(401) 앱이 로그인 화면으로 돌아가도록 알린다.
+let onUnauthorized: () => void = () => {}
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler
+}
+
 async function errorMessage(res: Response): Promise<string> {
+  if (res.status === 401) onUnauthorized()
   const body = await res.json().catch(() => null)
   return typeof body?.detail === 'string' ? body.detail : `요청이 실패했습니다(${res.status}).`
 }
@@ -231,6 +238,76 @@ export interface Health {
 }
 
 export const getHealth = () => getJson<Health>('/api/health')
+
+// 로그인·사용자
+
+export type Role = 'clerk' | 'lawyer' | 'admin'
+
+export interface User {
+  id: string
+  username: string
+  name: string
+  role: Role
+  role_label: string
+  created_at: string
+  last_login_at: string | null
+}
+
+const jsonBody = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+})
+
+async function send(url: string, init: RequestInit): Promise<void> {
+  const res = await fetch(url, init)
+  if (!res.ok) throw new Error(await errorMessage(res))
+}
+
+// 로그인 여부 확인. 로그인하지 않았으면 null(로그인 화면으로 보내는 알림은 하지 않는다).
+export async function getMe(): Promise<User | null> {
+  const res = await fetch('/api/auth/me')
+  if (res.status === 401) return null
+  if (!res.ok) throw new Error(`서버에 연결하지 못했습니다(${res.status}).`)
+  return res.json()
+}
+
+export async function login(username: string, password: string): Promise<User> {
+  const res = await fetch('/api/auth/login', jsonBody('POST', { username, password }))
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(typeof body?.detail === 'string' ? body.detail : `로그인하지 못했습니다(${res.status}).`)
+  }
+  return res.json()
+}
+
+export const logout = () => send('/api/auth/logout', { method: 'POST' })
+
+export const changePassword = (current_password: string, new_password: string) =>
+  send('/api/auth/password', jsonBody('POST', { current_password, new_password }))
+
+export const listUsers = () => getJson<User[]>('/api/users')
+
+export const createUser = (req: { username: string; name: string; role: Role; password: string }) =>
+  getJson<User>('/api/users', jsonBody('POST', req))
+
+export const deleteUser = (id: string) => send(`/api/users/${id}`, { method: 'DELETE' })
+
+export const resetPassword = (id: string, password: string) =>
+  send(`/api/users/${id}/password`, jsonBody('POST', { password }))
+
+// 서식 초안 검토
+
+export interface DraftStatus {
+  id: string
+  form_id: string
+  created_by: string | null
+  reviewed_by: string | null
+  reviewed_at: string | null
+}
+
+export const getDraft = (id: string) => getJson<DraftStatus>(`/api/drafts/${id}`)
+export const reviewDraft = (id: string) => getJson<DraftStatus>(`/api/drafts/${id}/review`, { method: 'POST' })
 
 export const listConversations = () => getJson<ConversationSummary[]>('/api/conversations')
 export const createConversation = () => getJson<ConversationSummary>('/api/conversations', { method: 'POST' })
@@ -283,6 +360,7 @@ export function uploadFile(file: File, onProgress: (ratio: number) => void): Pro
           return null
         }
       })()
+      if (xhr.status === 401) onUnauthorized()
       if (xhr.status >= 200 && xhr.status < 300) resolve(body)
       else reject(new Error(typeof body?.detail === 'string' ? body.detail : `업로드에 실패했습니다(${xhr.status}).`))
     }

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { ConversationSummary } from '../api'
 
 export default function Sidebar({
@@ -9,6 +10,7 @@ export default function Sidebar({
   onSelect,
   onNew,
   onShowDeadlines,
+  footer,
 }: {
   conversations: ConversationSummary[]
   activeId: string | null
@@ -18,6 +20,7 @@ export default function Sidebar({
   onSelect: (id: string) => void
   onNew: () => void
   onShowDeadlines: () => void
+  footer?: ReactNode
 }) {
   return (
     <nav className={`sidebar${open ? ' open' : ''}`} aria-label="대화 목록">
@@ -48,7 +51,8 @@ export default function Sidebar({
           </li>
         ))}
       </ul>
-      <p className="sidebar-note">대화와 첨부 파일은 자동으로 저장됩니다.</p>
+      <p className="sidebar-note">대화와 첨부 파일은 자동으로 저장됩니다. 대화는 본인에게만 보입니다.</p>
+      {footer}
     </nav>
   )
 }

@@ -1,6 +1,6 @@
 """DB 테이블 정의.
 
-지금 저장하는 것: 대화·메시지, 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 서식 초안,
+지금 저장하는 것: 사용자·로그인 세션, 대화·메시지, 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 서식 초안,
 작업(Job, 되묻기로 멈춘 LangGraph 실행), 감사 기록.
 """
 
@@ -17,6 +17,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -40,10 +41,43 @@ class Timestamped:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class User(Timestamped, Base):
+    """사용자. 관리자가 만든다. 삭제하면 deleted_at만 채워 감사 기록과 대화의 주인을 남긴다."""
+
+    __tablename__ = "users"
+    __table_args__ = (
+        # 삭제한 사용자의 아이디는 다시 쓸 수 있다
+        Index("uq_users_username_active", "username", unique=True, postgresql_where="deleted_at IS NULL"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_uuid)
+    username: Mapped[str] = mapped_column(String(50))
+    name: Mapped[str] = mapped_column(String(50))
+    role: Mapped[str] = mapped_column(String(16))
+    """clerk(사무원) | lawyer(변호사) | admin(관리자)"""
+    password_hash: Mapped[str] = mapped_column(String(255))
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class UserSession(Timestamped, Base):
+    """로그인 세션. 쿠키에는 토큰을, DB에는 토큰의 해시만 둔다."""
+
+    __tablename__ = "user_sessions"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    user: Mapped[User] = relationship()
+
+
 class Conversation(Timestamped, Base):
     __tablename__ = "conversations"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_uuid)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), index=True)
+    """대화의 주인. 대화는 본인만 본다(사건·기한은 법인 전체가 함께 본다)."""
     title: Mapped[str] = mapped_column(String(200), default="새 대화")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -204,13 +238,17 @@ class Draft(Timestamped, Base):
     blanks: Mapped[list[Any]] = mapped_column(default=list)
     """'나중에 입력'으로 빈칸으로 둔 항목 이름."""
     job_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("jobs.id"))
+    created_by: Mapped[str | None] = mapped_column(String(50))
+    reviewed_by: Mapped[str | None] = mapped_column(String(50))
+    """검토를 마친 변호사의 아이디. 비어 있으면 검토 전이다."""
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     file: Mapped[File] = relationship()
     case: Mapped[Case | None] = relationship()
 
 
 class AuditLog(Base):
-    """누가 언제 무엇을 바꿨는지. 사용자 인증 전까지 actor는 'system'이다."""
+    """누가 언제 무엇을 바꿨는지. actor는 로그인한 사용자의 아이디, 사람이 아닌 작업은 'system'이다."""
 
     __tablename__ = "audit_log"
 

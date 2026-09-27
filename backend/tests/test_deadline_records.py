@@ -4,6 +4,7 @@ import pytest
 from sqlalchemy import select
 
 from lawca.db.models import AuditLog
+from tests.conftest import login, make_user
 from tests.test_api import chat, client, new_conversation, upload  # noqa: F401 (픽스처 재사용)
 
 DESIGNATED_7_DAYS = {"amount": 7, "unit": "일", "label": "7일"}
@@ -100,10 +101,12 @@ def test_unknown_deadline_status_change_is_404(client):  # noqa: F811
     assert client.patch("/api/deadlines/nope", json={"status": "done"}).status_code == 404
 
 
-def test_ics_export_contains_only_confirmed(client, document):  # noqa: F811
+def test_ics_export_contains_only_confirmed(client, document, db):  # noqa: F811
     keep = confirm(client, document, label="보정기한").json()
     drop = confirm(client, document, label="취소할 기한").json()
-    client.patch(f"/api/deadlines/{drop['id']}", json={"status": "cancelled"})
+    make_user(db, "lawyer1", "lawyer")
+    login(client, "lawyer1")  # 취소는 변호사만 한다
+    assert client.patch(f"/api/deadlines/{drop['id']}", json={"status": "cancelled"}).status_code == 200
     res = client.get("/api/deadlines/export.ics")
     assert res.headers["content-type"].startswith("text/calendar")
     body = res.text

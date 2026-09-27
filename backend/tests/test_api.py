@@ -12,6 +12,7 @@ from lawca.api.app import app, get_checkpointer, get_extractor_factory, get_mode
 from lawca.db.models import AuditLog, Case, Document, Message
 from lawca.extraction.gemini import ModelUnavailableError
 from lawca.extraction.schema import CourtDocument
+from tests.conftest import login, make_user
 from tests.fakes import FakeChatModel
 from tests.test_extraction import correction_order
 
@@ -32,7 +33,10 @@ def client(db):
     app.dependency_overrides[get_models_factory] = lambda: (lambda: [FakeChatModel(tasks=[("help", "")])])
     saver = InMemorySaver()  # 테스트마다 새 체크포인터
     app.dependency_overrides[get_checkpointer] = lambda: saver
-    yield TestClient(app)
+    test_client = TestClient(app)
+    make_user(db, "clerk1", "clerk", "김사무")
+    assert login(test_client, "clerk1").status_code == 200  # 기본은 사무원으로 로그인한다
+    yield test_client
     for dependency in (get_extractor_factory, get_models_factory, get_checkpointer):
         app.dependency_overrides.pop(dependency, None)
 
@@ -99,7 +103,9 @@ def test_chat_with_pdf_streams_and_persists_everything(client, db):
         assert {(p.role, p.name) for p in case.parties} == {("원고", "홍길동")}
         document = session.scalars(select(Document)).one()
         assert (document.case_id, document.document_type) == (case.id, "보정명령")
-        assert {a.action for a in session.scalars(select(AuditLog))} == {"case.create", "document.create"}
+        work = [a for a in session.scalars(select(AuditLog)) if not a.action.startswith("user.")]
+        assert {a.action for a in work} == {"case.create", "document.create"}
+        assert {a.actor for a in work} == {"clerk1"}  # 로그인한 사용자가 기록된다
 
 
 def test_same_case_is_not_duplicated(client, db):
@@ -158,26 +164,26 @@ def test_chat_reports_unavailable_model_and_saves_reply(client, db):
         assert session.scalars(select(Document)).first() is None
 
 
-# 기한 계산(DB 없음)
+# 기한 계산(저장하지 않음)
 
 
-def test_deadline_endpoint_statutory():
-    body = TestClient(app).post("/api/deadlines", json={"event_date": "2026-09-10", "rule_id": "appeal"}).json()
+def test_deadline_endpoint_statutory(client):
+    body = client.post("/api/deadlines", json={"event_date": "2026-09-10", "rule_id": "appeal"}).json()
     assert body["deadline"] == "2026-09-28"
     assert [d["reason"] for d in body["extended_over"]][:2] == ["추석 전날", "추석"]
 
 
-def test_deadline_endpoint_designated():
-    res = TestClient(app).post(
+def test_deadline_endpoint_designated(client):
+    res = client.post(
         "/api/deadlines", json={"event_date": "2026-09-01", "period": {"amount": 7, "unit": "일", "label": "7일"}}
     )
     assert res.json()["deadline"] == "2026-09-08"
 
 
-def test_deadline_endpoint_requires_exactly_one_period_source():
-    assert TestClient(app).post("/api/deadlines", json={"event_date": "2026-09-01"}).status_code == 422
+def test_deadline_endpoint_requires_exactly_one_period_source(client):
+    assert client.post("/api/deadlines", json={"event_date": "2026-09-01"}).status_code == 422
 
 
-def test_deadline_outside_calendar_is_422():
-    res = TestClient(app).post("/api/deadlines", json={"event_date": "2030-01-02", "rule_id": "appeal"})
+def test_deadline_outside_calendar_is_422(client):
+    res = client.post("/api/deadlines", json={"event_date": "2030-01-02", "rule_id": "appeal"})
     assert res.status_code == 422

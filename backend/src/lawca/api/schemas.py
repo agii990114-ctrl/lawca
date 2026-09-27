@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from lawca.deadlines import DeadlineResult, Period
 from lawca.extraction.schema import CourtDocument
@@ -181,3 +181,47 @@ class JobOut(BaseModel):
     id: str
     status: str
     question: dict[str, Any] | None
+
+
+# 로그인·사용자
+
+Role = Literal["clerk", "lawyer", "admin"]
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserOut(BaseModel):
+    id: str
+    username: str
+    name: str
+    role: Role
+    role_label: str
+    created_at: datetime
+    last_login_at: datetime | None
+
+
+class UserCreate(BaseModel):
+    username: str = Field(min_length=3, max_length=50, pattern=r"^[A-Za-z0-9._-]+$")
+    name: str = Field(min_length=1, max_length=50)
+    role: Role
+    password: str
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class PasswordReset(BaseModel):
+    password: str
+
+
+class DraftOut(BaseModel):
+    id: str
+    form_id: str
+    created_by: str | None
+    reviewed_by: str | None
+    reviewed_at: datetime | None

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   createConversation,
   getConversation,
@@ -40,7 +40,7 @@ function applyEvent(message: Message, event: ChatEvent): Message {
   }
 }
 
-export default function App() {
+export default function App({ userMenu }: { userMenu: ReactNode }) {
   const [summaries, setSummaries] = useState<ConversationSummary[]>([])
   const [threads, setThreads] = useState<Record<string, Message[]>>({})
   // null이면 아직 저장하지 않은 새 대화. 첫 메시지를 보낼 때 서버에 만든다.
@@ -250,6 +250,7 @@ export default function App() {
         onSelect={openConversation}
         onNew={newConversation}
         open={sidebarOpen}
+        footer={userMenu}
         onShowDeadlines={() => {
           setSidebarOpen(false)
           setView('deadlines')

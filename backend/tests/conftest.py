@@ -11,6 +11,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
 
 from lawca.api.app import app
+from lawca.db import repo
 from lawca.db.models import Base
 from lawca.db.session import get_session_factory
 
@@ -42,3 +43,18 @@ def db(test_factory: sessionmaker[Session]) -> Iterator[sessionmaker[Session]]:
     app.dependency_overrides[get_session_factory] = lambda: test_factory
     yield test_factory
     app.dependency_overrides.pop(get_session_factory, None)
+
+
+TEST_PASSWORD = "test-pass-1"
+
+
+def make_user(factory: sessionmaker[Session], username: str, role: str, name: str | None = None) -> str:
+    """테스트 사용자를 만들고 id를 돌려준다. 비밀번호는 TEST_PASSWORD."""
+    with factory() as session:
+        user = repo.create_user(session, username, name or username, role, TEST_PASSWORD)
+        session.commit()
+        return str(user.id)
+
+
+def login(client, username: str, password: str = TEST_PASSWORD):
+    return client.post("/api/auth/login", json={"username": username, "password": password})
