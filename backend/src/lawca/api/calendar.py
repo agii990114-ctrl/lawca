@@ -1,7 +1,7 @@
 """캘린더 API: 기한과 일정(기일·직접 입력)을 한 달·한 주 단위로 보여 주고, 개인 구독 주소(ICS)를 낸다.
 
-- 기한은 확정한 것만 캘린더에 오른다(계산만 한 기한은 날짜가 확정되지 않았으므로 올리지 않는다).
-- 기일통지서에서 읽은 기일은 '미확정'으로 올라가고, 사람이 원문과 대조해 확정한다.
+- 캘린더에는 확정한 것만 오른다: 진행 중인 기한, 확정한 기일, 직접 넣은 일정.
+  완료·취소한 기한과 미확정 기일은 오르지 않는다(미확정 기일은 기한 목록의 '대기' 탭에서 확정한다).
 - 일정을 고치거나 취소하는 것은 만든 사람이나 변호사만 한다. 미확정 기일의 확정은 누구나 한다.
 """
 
@@ -14,7 +14,6 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from lawca.agent.documents import suggestions_out
 from lawca.api.deps import DB, Worker
 from lawca.api.schemas import (
     SERVICE_LABELS,
@@ -24,13 +23,11 @@ from lawca.api.schemas import (
     EventUpdate,
     FeedOut,
     HolidayOut,
-    PendingDocumentOut,
 )
 from lawca.db import repo
 from lawca.db.models import Deadline, Event, User
 from lawca.deadlines import HolidayCalendar
 from lawca.deadlines.ics import DEADLINE_ALARMS, IcsEvent, to_ics
-from lawca.extraction.schema import CourtDocument
 
 router = APIRouter()
 MAX_RANGE_DAYS = 100
@@ -77,7 +74,8 @@ def deadline_item(d: Deadline, user: User) -> CalendarItemOut:
         filename=d.document.file.name,
         document_type=d.document.document_type,
         details=deadline_details(d),
-        can_edit=user.role == "lawyer",
+        can_edit=True,
+        document_id=str(d.document_id),
     )
 
 
@@ -123,6 +121,7 @@ def event_item(e: Event, user: User) -> CalendarItemOut:
         document_type=e.document.document_type if e.document else None,
         details=event_details(e),
         can_edit=can_edit(e, user),
+        document_id=str(e.document_id) if e.document_id else None,
     )
 
 
@@ -131,8 +130,8 @@ def _mine(item: CalendarItemOut, user: User) -> bool:
 
 
 def calendar_items(session: Session, user: User, start: date, end: date, mine: bool) -> list[CalendarItemOut]:
-    deadlines = repo.list_deadlines(session, ["confirmed", "done"], date_from=start, date_to=end)
-    events = repo.list_events(session, start, end, user.username, statuses=["tentative", "confirmed"])
+    deadlines = repo.list_deadlines(session, ["confirmed"], date_from=start, date_to=end)
+    events = repo.list_events(session, start, end, user.username, statuses=["confirmed"])
     items = [deadline_item(d, user) for d in deadlines] + [event_item(e, user) for e in events]
     if mine:
         items = [i for i in items if _mine(i, user)]
@@ -160,40 +159,6 @@ def calendar(
         items=calendar_items(session, user, start, end, mine),
         holidays=[HolidayOut(day=d, name=name) for d, name in holidays],
     )
-
-
-@router.get("/api/calendar/pending")
-def pending(_: Worker, session: DB) -> list[PendingDocumentOut]:
-    """송달일을 넣어 기한을 확정해야 하는 문서. 기한 후보가 없는 문서(기일통지서 등)는 빼고 보낸다."""
-    out = []
-    for d in repo.pending_documents(session):
-        suggestions = suggestions_out(CourtDocument.model_validate(d.extraction))
-        if not suggestions:
-            continue
-        out.append(
-            PendingDocumentOut(
-                document_id=str(d.id),
-                file_id=str(d.file_id),
-                filename=d.file.name,
-                document_type=d.document_type,
-                case_number=d.case.case_number if d.case else None,
-                court=d.case.court if d.case else None,
-                issued_date=d.issued_date,
-                created_at=d.created_at,
-                suggestions=suggestions,
-            )
-        )
-    return out
-
-
-@router.post("/api/documents/{document_id}/dismiss-pending", status_code=204)
-def dismiss_pending(document_id: str, _: Worker, session: DB) -> None:
-    """기한을 잡지 않을 문서를 '송달일 입력 대기' 목록에서 뺀다."""
-    document = repo.get_document(session, document_id)
-    if document is None:
-        raise HTTPException(404, "문서를 찾을 수 없습니다.")
-    repo.dismiss_pending(session, document)
-    session.commit()
 
 
 # 일정 만들기·고치기

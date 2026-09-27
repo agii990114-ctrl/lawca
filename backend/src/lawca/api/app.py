@@ -22,6 +22,7 @@ from lawca.api.calendar import deadline_details, deadline_title
 from lawca.api.calendar import router as calendar_router
 from lawca.api.chat import answer_summary, chat_events, resume_events
 from lawca.api.deps import DB, CurrentUser, Lawyer, SessionFactory, Worker
+from lawca.api.documents_api import router as documents_router
 from lawca.api.users import router as users_router
 from lawca.api.records import record_out
 from lawca.api.schemas import (
@@ -34,6 +35,7 @@ from lawca.api.schemas import (
     DeadlineRecordOut,
     DeadlineRequest,
     DeadlineStatusUpdate,
+    DeadlineTermsUpdate,
     DraftOut,
     FileOut,
     JobOut,
@@ -62,6 +64,7 @@ app = FastAPI(title="lawca API", version="0.1.0")
 
 app.include_router(users_router)
 app.include_router(calendar_router)
+app.include_router(documents_router)
 
 UNITS = {u.value: u for u in Unit}
 
@@ -426,6 +429,7 @@ def confirm_deadline(req: DeadlineConfirmRequest, _: Worker, session: DB) -> Dea
     document = repo.find_document(session, req.document_id, req.file_id)
     if document is None:
         raise HTTPException(404, "문서를 찾을 수 없습니다.")
+    _no_conflict(session, repo.deadline_key(req.rule_id, document.document_type), document.case_id, document.id)
     result = _compute(req.rule_id, req.period, req.event_date, req.service_kind == "electronic_deemed")
     saved = repo.create_deadline(
         session,
@@ -441,6 +445,28 @@ def confirm_deadline(req: DeadlineConfirmRequest, _: Worker, session: DB) -> Dea
     return _one(session, saved.id)
 
 
+def _no_conflict(
+    session: Session, key: str, case_id: uuid.UUID | None, document_id: uuid.UUID, exclude_id: uuid.UUID | None = None
+) -> None:
+    """같은 사건·같은 종류로 진행 중인 기한이 있으면 409. 기한은 새로 만들지 말고 기한 목록에서 고친다."""
+    existing = repo.open_conflict(session, key=key, case_id=case_id, document_id=document_id, exclude_id=exclude_id)
+    if existing is not None:
+        where = existing.case.case_number if existing.case else "이 문서"
+        raise HTTPException(
+            409,
+            f"{where}에 이미 진행 중인 {existing.label}(만료 {existing.deadline.isoformat()}, 확정 {existing.confirmed_by})이 "
+            "있습니다. 고치려면 기한 목록에서 수정하세요.",
+        )
+
+
+def _deadline(session: Session, deadline_id: str) -> Deadline:
+    parsed = repo._parse_id(deadline_id)
+    deadline = repo.get_deadline(session, parsed) if parsed else None
+    if deadline is None or deadline.status == "deleted":
+        raise HTTPException(404, "기한을 찾을 수 없습니다.")
+    return deadline
+
+
 def _statuses(status: str | None) -> list[str] | None:
     return [s for s in status.split(",") if s] if status else None
 
@@ -451,20 +477,59 @@ def deadlines(
     session: DB,
     status: Annotated[str | None, Query(description="쉼표로 구분. 예: confirmed,done")] = None,
     document_id: str | None = None,
+    case_number: str | None = None,
 ) -> list[DeadlineRecordOut]:
-    return [record_out(d) for d in repo.list_deadlines(session, _statuses(status), document_id)]
+    rows = repo.list_deadlines(session, _statuses(status), document_id, case_number=case_number)
+    return [record_out(d) for d in rows]
 
 
 @app.patch("/api/deadlines/{deadline_id}")
-def update_deadline(deadline_id: str, req: DeadlineStatusUpdate, user: Worker, session: DB) -> DeadlineRecordOut:
-    """사무원은 확정한 기한을 '완료'로만 바꿀 수 있다. 취소와 되돌리기는 변호사가 한다."""
-    if req.status != "done" and user.role != "lawyer":
-        raise HTTPException(403, "확정한 기한의 취소·되돌리기는 변호사만 할 수 있습니다.")
+def update_deadline(deadline_id: str, req: DeadlineStatusUpdate, _: Worker, session: DB) -> DeadlineRecordOut:
+    """완료·취소·복원. 복원(진행 중으로 되돌리기)은 같은 사건에 같은 종류로 진행 중인 기한이 없을 때만 된다."""
+    deadline = _deadline(session, deadline_id)
+    if req.status == "confirmed" and deadline.status != "confirmed":
+        _no_conflict(session, repo.key_of(deadline), deadline.case_id, deadline.document_id, exclude_id=deadline.id)
     saved = repo.set_deadline_status(session, deadline_id, req.status)
-    if saved is None:
-        raise HTTPException(404, "기한을 찾을 수 없습니다.")
+    assert saved is not None
     session.commit()
     return _one(session, saved.id)
+
+
+@app.patch("/api/deadlines/{deadline_id}/terms")
+def update_deadline_terms(deadline_id: str, req: DeadlineTermsUpdate, _: Worker, session: DB) -> DeadlineRecordOut:
+    """진행 중인 기한의 송달일·송달 유형·기간을 고친다. 새 기한을 만들지 않고 이 기한을 서버가 다시 계산한다."""
+    deadline = _deadline(session, deadline_id)
+    if deadline.status != "confirmed":
+        raise HTTPException(409, "진행 중인 기한만 고칠 수 있습니다. 먼저 복원하세요.")
+    if deadline.rule_id is None:
+        period = req.period or PeriodOut(amount=deadline.period_amount, unit=deadline.period_unit, label="")  # type: ignore[arg-type]
+        result = _compute(None, period, req.event_date, req.service_kind == "electronic_deemed")
+    else:
+        if req.period is not None:
+            raise HTTPException(422, "법정 기간은 기간을 바꿀 수 없습니다.")
+        result = _compute(deadline.rule_id, None, req.event_date, req.service_kind == "electronic_deemed")
+    repo.update_deadline_terms(
+        session,
+        deadline,
+        label=(req.label or deadline.label).strip(),
+        event_date=req.event_date,
+        service_kind=req.service_kind,
+        period_amount=result.period.amount,
+        period_unit=result.period.unit.value,
+        result=result,
+    )
+    session.commit()
+    return _one(session, deadline.id)
+
+
+@app.delete("/api/deadlines/{deadline_id}", status_code=204)
+def delete_deadline(deadline_id: str, _: Lawyer, session: DB) -> None:
+    """취소한 기한을 지운다(변호사만). 기록은 남기고 어디에도 보이지 않게 한다."""
+    deadline = _deadline(session, deadline_id)
+    if deadline.status != "cancelled":
+        raise HTTPException(409, "취소한 기한만 삭제할 수 있습니다.")
+    repo.delete_deadline(session, deadline)
+    session.commit()
 
 
 @app.get("/api/deadlines/export.ics")

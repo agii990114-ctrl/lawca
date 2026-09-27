@@ -45,6 +45,7 @@ export interface Issue {
 
 export interface Suggestion {
   kind: 'statutory' | 'designated'
+  key: string
   label: string
   rule_id: string | null
   period: Period | null
@@ -143,9 +144,16 @@ export interface DeadlineRequest {
 export type ServiceKind = 'electronic_confirmed' | 'electronic_deemed' | 'paper'
 export type DeadlineStatus = 'confirmed' | 'done' | 'cancelled'
 
+export const SERVICE_LABELS: Record<ServiceKind, string> = {
+  electronic_confirmed: '전자소송에서 확인한 날',
+  electronic_deemed: '전자소송 간주 송달일',
+  paper: '종이 문서를 받은 날',
+}
+
 export interface DeadlineRecord {
   id: string
   status: DeadlineStatus
+  key: string
   label: string
   kind: 'statutory' | 'designated'
   rule_id: string | null
@@ -160,6 +168,8 @@ export interface DeadlineRecord {
   basis: string[]
   warnings: string[]
   created_at: string
+  confirmed_by: string
+  status_changed_at: string | null
   document_id: string
   document_type: string
   file_id: string
@@ -321,10 +331,11 @@ export const confirmDeadline = (req: DeadlineConfirmRequest) =>
     body: JSON.stringify(req),
   })
 
-export function listDeadlines(params: { status?: DeadlineStatus[]; document_id?: string } = {}) {
+export function listDeadlines(params: { status?: DeadlineStatus[]; document_id?: string; case_number?: string } = {}) {
   const query = new URLSearchParams()
   if (params.status?.length) query.set('status', params.status.join(','))
   if (params.document_id) query.set('document_id', params.document_id)
+  if (params.case_number) query.set('case_number', params.case_number)
   return getJson<DeadlineRecord[]>(`/api/deadlines?${query}`)
 }
 
@@ -458,6 +469,7 @@ export interface CalendarItem {
   document_type: string | null
   details: string[]
   can_edit: boolean
+  document_id: string | null
 }
 
 export interface CalendarData {
@@ -504,7 +516,40 @@ export const createEvent = (input: EventInput) => getJson<CalendarItem>('/api/ev
 export const updateEvent = (id: string, patch: EventPatch) =>
   getJson<CalendarItem>(`/api/events/${id}`, jsonBody('PATCH', patch))
 
-export const getPending = () => getJson<PendingDocument[]>('/api/calendar/pending')
+export const getPending = () =>
+  getJson<{ documents: PendingDocument[]; hearings: CalendarItem[] }>('/api/deadlines/pending')
+
+export interface DocumentDetail {
+  document_id: string
+  file_id: string
+  filename: string
+  document_type: string
+  model: string
+  created_at: string
+  case_number: string | null
+  court: string | null
+  case_name: string | null
+  parties: { role: string; name: string }[]
+  corrected: boolean
+  extraction: CourtDocument
+  issues: Issue[]
+  suggestions: Suggestion[]
+  deadlines: DeadlineRecord[]
+  hearings: CalendarItem[]
+  pending_dismissed: boolean
+}
+
+export const getDocument = (id: string) => getJson<DocumentDetail>(`/api/documents/${id}`)
+
+export const correctDocumentCase = (id: string, body: { case_number: string; court: string | null; case_name: string | null }) =>
+  getJson<DocumentDetail>(`/api/documents/${id}/case`, jsonBody('PATCH', body))
+
+export const updateDeadlineTerms = (
+  id: string,
+  body: { event_date: string; service_kind: ServiceKind; label?: string; period?: Period },
+) => getJson<DeadlineRecord>(`/api/deadlines/${id}/terms`, jsonBody('PATCH', body))
+
+export const deleteDeadline = (id: string) => send(`/api/deadlines/${id}`, { method: 'DELETE' })
 
 export const dismissPending = (documentId: string) =>
   send(`/api/documents/${documentId}/dismiss-pending`, { method: 'POST' })

@@ -2,19 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   createEvent,
   getCalendar,
-  getPending,
   updateEvent,
   type CalendarData,
   type CalendarItem,
   type EventInput,
-  type PendingDocument,
 } from '../api'
 import { todayIso } from '../format'
 import { addDays, addMonths, dayLabel, parseIso, title, visibleDays, WEEKDAYS, type Mode } from './dates'
 import EventForm from './EventForm'
 import FeedDialog from './FeedDialog'
 import ItemDetail from './ItemDetail'
-import PendingList from './PendingList'
 
 const MAX_CHIPS = 3
 
@@ -45,7 +42,6 @@ export default function CalendarView({ onOpenFile }: { onOpenFile: (fileId: stri
   const [anchor, setAnchor] = useState(today)
   const [mine, setMine] = useState(false)
   const [data, setData] = useState<CalendarData | null>(null)
-  const [pending, setPending] = useState<PendingDocument[]>([])
   const [error, setError] = useState<string | null>(null)
   const [selectedDay, setSelectedDay] = useState(today)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -62,9 +58,6 @@ export default function CalendarView({ onOpenFile }: { onOpenFile: (fileId: stri
         setError(null)
       })
       .catch((e: Error) => setError(e.message))
-    getPending()
-      .then(setPending)
-      .catch(() => undefined)
   }, [days, mine])
 
   useEffect(load, [load])
@@ -241,11 +234,9 @@ export default function CalendarView({ onOpenFile }: { onOpenFile: (fileId: stri
               <span className="chip deadline confirmed">기한</span>
               <span className="chip hearing confirmed">기일</span>
               <span className="chip manual confirmed">일정</span>
-              <span className="chip hearing tentative">미확정</span>
             </div>
+            <p className="muted small-note">확정한 것만 보입니다. 송달일 입력과 기일 확정은 기한 목록의 대기 탭에서 합니다.</p>
           </section>
-
-          {pending.length > 0 && <PendingList items={pending} onChanged={load} onOpenFile={onOpenFile} />}
         </aside>
       </div>
 

@@ -32,6 +32,7 @@ from lawca.agent.llm import ChatModel, Turn, with_fallback
 from lawca.agent.query_agent import run_query
 from lawca.agent.router import route_text
 from lawca.api.schemas import DocumentOut
+from lawca.db import repo
 from lawca.db.models import File
 from lawca.extraction.gemini import ExtractionError, Extractor, ModelUnavailableError
 
@@ -130,6 +131,24 @@ def next_task(state: ChatState) -> str:
     return NODE_FOR_LABEL.get(label, label)
 
 
+def _existing_note(session: Session, document_id: str | None, result: DocumentOut) -> str:
+    """사건번호로 DB를 찾아, 같은 종류로 이미 진행 중인 기한이 있으면 알린다(새로 확정할 수 없다)."""
+    if not document_id or not result.suggestions:
+        return ""
+    document = repo.get_document(session, document_id)
+    if document is None:
+        return ""
+    lines = []
+    for key in dict.fromkeys(s.key for s in result.suggestions):
+        existing = repo.open_conflict(session, key=key, case_id=document.case_id, document_id=document.id)
+        if existing is not None:
+            lines.append(
+                f"\n이 사건에는 이미 진행 중인 **{existing.label}**(만료 {existing.deadline.isoformat()}, "
+                f"확정 {existing.confirmed_by})이 있어 새로 확정하지 않습니다. 고치려면 기한 목록에서 수정하세요."
+            )
+    return "".join(lines)
+
+
 def document(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
     write = get_stream_writer()
     deps = _deps(config)
@@ -154,7 +173,7 @@ def document(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
         if document_id:
             result = result.model_copy(update={"document_id": document_id})
         write({"type": "status", "id": step, "label": f"{stored.name} 읽음 · {result.model}", "state": "done"})
-        write({"type": "text", "delta": prefix + summarize(result)})
+        write({"type": "text", "delta": prefix + summarize(result) + _existing_note(deps.session, document_id, result)})
         write({"type": "card", "card": {"kind": "document", **result.model_dump(mode="json")}})
     return {"index": state["index"] + 1}
 

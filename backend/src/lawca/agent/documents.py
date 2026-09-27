@@ -18,6 +18,7 @@ def suggestions_out(doc: CourtDocument) -> list[SuggestionOut]:
     return [
         SuggestionOut(
             kind=s.kind,
+            key=s.rule_id or f"designated:{doc.document_type.value}",
             label=s.label,
             rule_id=s.rule_id,
             period=PeriodOut.of(s.period) if s.period else None,
@@ -54,8 +55,8 @@ def summarize(result: DocumentOut) -> str:
     if doc.hearing is not None:
         when = " ".join(v for v in (doc.hearing.date, doc.hearing.time) if v)
         lines.append(
-            f"{doc.hearing.kind or '기일'}({when})을 캘린더에 **미확정** 일정으로 올렸습니다. "
-            "원문과 대조한 뒤 캘린더에서 확정하세요."
+            f"{doc.hearing.kind or '기일'}({when})을 읽었습니다. 기한 목록의 **대기** 탭에서 원문과 대조해 "
+            "확정하면 캘린더에 올라갑니다."
         )
     if result.suggestions:
         lines.append("송달일은 문서에 적혀 있지 않습니다. 아래에 송달일을 입력하면 기한을 계산합니다.")

@@ -171,6 +171,8 @@ class Document(Timestamped, Base):
     text_available: Mapped[bool] = mapped_column(Boolean)
     extraction: Mapped[dict[str, Any]] = mapped_column()
     issues: Mapped[list[Any]] = mapped_column(default=list)
+    corrections: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    """사람이 고친 사건 정보(court, case_number, case_name). 추출값(extraction)은 그대로 둔다."""
     pending_dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     """'송달일 입력 대기' 목록에서 뺀 시각(기한을 잡지 않기로 한 문서)."""
 
@@ -202,7 +204,7 @@ class Deadline(Timestamped, Base):
     basis: Mapped[list[Any]] = mapped_column(default=list)
     warnings: Mapped[list[Any]] = mapped_column(default=list)
     status: Mapped[str] = mapped_column(String(16), default="confirmed", index=True)
-    """confirmed(확정) | done(완료) | cancelled(취소)."""
+    """confirmed(진행 중) | done(완료) | cancelled(취소) | deleted(삭제, 어디에도 보이지 않음)."""
     confirmed_by: Mapped[str] = mapped_column(String(100))
     status_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

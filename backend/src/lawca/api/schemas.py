@@ -29,6 +29,8 @@ class IssueOut(BaseModel):
 
 class SuggestionOut(BaseModel):
     kind: Literal["statutory", "designated"]
+    key: str
+    """기한 종류. 같은 사건에 같은 key로 진행 중인 기한은 하나만 둔다."""
     label: str
     rule_id: str | None
     period: PeriodOut | None
@@ -146,6 +148,7 @@ class DeadlineConfirmRequest(BaseModel):
 class DeadlineRecordOut(BaseModel):
     id: str
     status: Literal["confirmed", "done", "cancelled"]
+    key: str
     label: str
     kind: str
     rule_id: str | None
@@ -160,6 +163,9 @@ class DeadlineRecordOut(BaseModel):
     basis: list[str]
     warnings: list[str]
     created_at: datetime
+    confirmed_by: str
+    status_changed_at: datetime | None
+    """완료·취소·복원한 시각."""
     document_id: str
     document_type: str
     file_id: str
@@ -260,6 +266,7 @@ class CalendarItemOut(BaseModel):
     details: list[str]
     can_edit: bool
     """이 사용자가 일정을 고치거나 취소할 수 있는지(직접 만든 일정 또는 변호사)."""
+    document_id: str | None = None
 
 
 class HolidayOut(BaseModel):
@@ -315,3 +322,48 @@ class PendingDocumentOut(BaseModel):
 class FeedOut(BaseModel):
     path: str
     """구독 주소의 경로. 화면이 자기 주소(origin)를 앞에 붙인다."""
+
+
+
+class DeadlineTermsUpdate(BaseModel):
+    """진행 중인 기한 고치기. 서버가 다시 계산한다. 법정 기간은 기간을 바꿀 수 없다."""
+
+    label: str | None = Field(default=None, min_length=1, max_length=100)
+    event_date: date
+    service_kind: ServiceKind
+    period: PeriodOut | None = None
+
+
+class DocumentCaseUpdate(BaseModel):
+    case_number: str = Field(min_length=1, max_length=40)
+    court: str | None = Field(default=None, max_length=100)
+    case_name: str | None = Field(default=None, max_length=200)
+
+
+class DocumentDetailOut(BaseModel):
+    """기한 목록 팝업에 보여 줄 문서 정보. 사건 정보는 사람이 고친 값이 있으면 그 값이다."""
+
+    document_id: str
+    file_id: str
+    filename: str
+    document_type: str
+    model: str
+    created_at: datetime
+    case_number: str | None
+    court: str | None
+    case_name: str | None
+    parties: list[dict[str, str]]
+    corrected: bool
+    extraction: CourtDocument
+    issues: list[IssueOut]
+    suggestions: list[SuggestionOut]
+    deadlines: list[DeadlineRecordOut]
+    hearings: list[CalendarItemOut]
+    pending_dismissed: bool
+
+
+class PendingOut(BaseModel):
+    """기한 목록의 '대기' 탭: 송달일을 넣어 기한을 확정할 문서와 확정할 기일."""
+
+    documents: list[PendingDocumentOut]
+    hearings: list[CalendarItemOut]

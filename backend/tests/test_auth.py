@@ -174,14 +174,16 @@ def test_conversations_are_private(client, db):  # noqa: F811
     assert res.status_code == 404
 
 
-def test_clerk_can_finish_but_not_cancel_deadlines(client, document, db):  # noqa: F811
+def test_clerk_cancels_and_restores_but_only_lawyer_deletes(client, document, db):  # noqa: F811
     record = confirm(client, document).json()
-    assert client.patch(f"/api/deadlines/{record['id']}", json={"status": "cancelled"}).status_code == 403
-    assert client.patch(f"/api/deadlines/{record['id']}", json={"status": "done"}).status_code == 200
-    assert client.patch(f"/api/deadlines/{record['id']}", json={"status": "confirmed"}).status_code == 403
+    url = f"/api/deadlines/{record['id']}"
+    assert client.patch(url, json={"status": "done"}).status_code == 200
+    assert client.patch(url, json={"status": "confirmed"}).status_code == 200  # 복원
+    assert client.patch(url, json={"status": "cancelled"}).status_code == 200
+    assert client.delete(url).status_code == 403
     make_user(db, "lawyer1", "lawyer")
     login(client, "lawyer1")
-    assert client.patch(f"/api/deadlines/{record['id']}", json={"status": "confirmed"}).status_code == 200
+    assert client.delete(url).status_code == 204
 
 
 def test_only_lawyers_review_drafts(client, db):  # noqa: F811

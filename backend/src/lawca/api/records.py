@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from lawca.api.schemas import SERVICE_LABELS, DeadlineRecordOut, PeriodOut
+from lawca.db.repo import key_of
 from lawca.db.models import Deadline
 from lawca.deadlines import Period, Unit
 
@@ -13,6 +14,7 @@ def record_out(d: Deadline) -> DeadlineRecordOut:
     return DeadlineRecordOut(
         id=str(d.id),
         status=d.status,  # type: ignore[arg-type]
+        key=key_of(d),
         label=d.label,
         kind=d.kind,
         rule_id=d.rule_id,
@@ -27,6 +29,8 @@ def record_out(d: Deadline) -> DeadlineRecordOut:
         basis=d.basis,
         warnings=d.warnings,
         created_at=d.created_at,
+        confirmed_by=d.confirmed_by,
+        status_changed_at=d.status_changed_at,
         document_id=str(d.document_id),
         document_type=d.document.document_type,
         file_id=str(d.document.file_id),

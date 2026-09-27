@@ -399,6 +399,26 @@ def get_deadline(session: Session, deadline_id: uuid.UUID) -> Deadline | None:
     return session.scalars(_deadline_query().where(Deadline.id == deadline_id)).first()
 
 
+def deadline_key(rule_id: str | None, document_type: str) -> str:
+    """같은 사건에 하나만 진행할 수 있는 기한의 종류. 법정 기간은 규칙, 문서가 정한 기간은 문서 종류로 가른다."""
+    return rule_id or f"designated:{document_type}"
+
+
+def key_of(d: Deadline) -> str:
+    return deadline_key(d.rule_id, d.document.document_type)
+
+
+def open_conflict(
+    session: Session, *, key: str, case_id: uuid.UUID | None, document_id: uuid.UUID, exclude_id: uuid.UUID | None = None
+) -> Deadline | None:
+    """같은 사건(사건이 없으면 같은 문서)에 같은 종류로 진행 중인 기한."""
+    scope = Deadline.case_id == case_id if case_id is not None else Deadline.document_id == document_id
+    query = _deadline_query().where(Deadline.status == "confirmed", scope)
+    if exclude_id is not None:
+        query = query.where(Deadline.id != exclude_id)
+    return next((d for d in session.scalars(query) if key_of(d) == key), None)
+
+
 def list_deadlines(
     session: Session,
     statuses: list[str] | None = None,
@@ -408,7 +428,7 @@ def list_deadlines(
     date_to: date | None = None,
     case_number: str | None = None,
 ) -> list[Deadline]:
-    query = _deadline_query().order_by(Deadline.deadline, Deadline.created_at)
+    query = _deadline_query().where(Deadline.status != "deleted").order_by(Deadline.deadline, Deadline.created_at)
     if date_from is not None:
         query = query.where(Deadline.deadline >= date_from)
     if date_to is not None:
@@ -681,3 +701,120 @@ def issue_calendar_token(session: Session, user: User) -> str:
 def user_for_calendar_token(session: Session, token: str) -> User | None:
     query = select(User).where(User.calendar_token_hash == token_hash(token), User.deleted_at.is_(None))
     return session.scalars(query).first()
+
+
+def update_deadline_terms(
+    session: Session,
+    deadline: Deadline,
+    *,
+    label: str,
+    event_date: date,
+    service_kind: str,
+    period_amount: int,
+    period_unit: str,
+    result: DeadlineResult,
+) -> Deadline:
+    """진행 중인 기한의 송달일·기간을 고치고 서버가 다시 계산한 값으로 바꾼다. 고치기 전 값은 감사 기록에 남긴다."""
+    before = {
+        "label": deadline.label,
+        "event_date": deadline.event_date.isoformat(),
+        "service_kind": deadline.service_kind,
+        "period": f"{deadline.period_amount}{deadline.period_unit}",
+        "deadline": deadline.deadline.isoformat(),
+    }
+    deadline.label = label
+    deadline.event_date = event_date
+    deadline.service_kind = service_kind
+    deadline.period_amount = period_amount
+    deadline.period_unit = period_unit
+    deadline.count_start = result.count_start
+    deadline.nominal_end = result.nominal_end
+    deadline.deadline = result.deadline
+    deadline.extended_over = [{"day": d.isoformat(), "reason": why} for d, why in result.extended_over]
+    deadline.basis = list(result.basis)
+    deadline.warnings = list(result.warnings)
+    audit(session, "deadline.update", "deadline", deadline.id, {"before": before, "deadline": result.deadline.isoformat()})
+    session.flush()
+    return deadline
+
+
+def delete_deadline(session: Session, deadline: Deadline) -> None:
+    """취소한 기한을 지운다. 기록을 남기려고 행은 두고 deleted로 바꿔 어디에도 보이지 않게 한다."""
+    audit(session, "deadline.deleted", "deadline", deadline.id, {"from": deadline.status})
+    deadline.status = "deleted"
+    deadline.status_changed_at = _now()
+    session.flush()
+
+
+def list_tentative_hearings(session: Session, username: str) -> list[Event]:
+    query = (
+        _event_query()
+        .where(Event.kind == "hearing", Event.status == "tentative")
+        .where((Event.visibility == "firm") | (Event.created_by == username))
+        .order_by(Event.day, Event.at.nulls_first())
+    )
+    return list(session.scalars(query))
+
+
+def document_detail_query():  # noqa: ANN201
+    return select(Document).options(
+        selectinload(Document.case).selectinload(Case.parties), selectinload(Document.file)
+    )
+
+
+def get_document_detail(session: Session, document_id: str) -> Document | None:
+    parsed = _parse_id(document_id)
+    return session.scalars(document_detail_query().where(Document.id == parsed)).first() if parsed else None
+
+
+def document_deadlines(session: Session, document: Document) -> list[Deadline]:
+    query = _deadline_query().where(Deadline.document_id == document.id, Deadline.status != "deleted")
+    return list(session.scalars(query.order_by(Deadline.deadline)))
+
+
+def document_events(session: Session, document: Document) -> list[Event]:
+    query = _event_query().where(Event.document_id == document.id, Event.status != "cancelled")
+    return list(session.scalars(query))
+
+
+class CaseConflict(ValueError):
+    def __init__(self, deadline: Deadline) -> None:
+        super().__init__(deadline.label)
+        self.deadline = deadline
+
+
+def correct_document_case(
+    session: Session, document: Document, *, case_number: str, court: str | None, case_name: str | None
+) -> Case:
+    """문서의 사건 정보를 사람이 고친다. 사건을 찾거나 만들어 문서·기한·기일을 그 사건으로 옮긴다.
+
+    옮길 사건에 같은 종류로 진행 중인 기한이 있으면 CaseConflict를 낸다(같은 사건·같은 종류는 하나만).
+    """
+    number = re.sub(r"\s+", "", case_number)
+    if not CASE_NUMBER.match(number):
+        raise ValueError(f"사건번호 형식이 아닙니다: {case_number}")
+    case = session.scalars(select(Case).where(Case.case_number == number)).first()
+    if case is None:
+        case = Case(case_number=number, court=court or None, case_name=case_name or None)
+        session.add(case)
+        session.flush()
+        audit(session, "case.create", "case", case.id, {"case_number": number, "source": "correction"})
+    for d in document_deadlines(session, document):
+        if d.status == "confirmed":
+            conflict = open_conflict(session, key=key_of(d), case_id=case.id, document_id=document.id, exclude_id=d.id)
+            if conflict is not None and conflict.document_id != document.id:
+                raise CaseConflict(conflict)
+    before = {"case_id": str(document.case_id), **document.corrections}
+    if court:
+        case.court = court
+    if case_name:
+        case.case_name = case_name
+    document.case_id = case.id
+    document.corrections = {"case_number": number, "court": court or case.court, "case_name": case_name or case.case_name}
+    for d in document_deadlines(session, document):
+        d.case_id = case.id
+    for e in document_events(session, document):
+        e.case_id = case.id
+    audit(session, "document.correct", "document", document.id, {"before": before, "after": document.corrections})
+    session.flush()
+    return case

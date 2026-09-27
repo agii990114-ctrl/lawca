@@ -277,7 +277,7 @@ export default function App({ userMenu }: { userMenu: ReactNode }) {
           </span>
         </div>
         {view === 'deadlines' ? (
-          <DeadlinesView onOpenFile={(fileId, name) => setPreview({ fileId, name, page: 1 })} />
+          <DeadlinesView />
         ) : view === 'calendar' ? (
           <CalendarView onOpenFile={(fileId, name) => setPreview({ fileId, name, page: 1 })} />
         ) : activeId === null ? (

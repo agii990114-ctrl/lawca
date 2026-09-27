@@ -73,17 +73,22 @@ def items(client, **params):  # noqa: F811
     return client.get("/api/calendar", params=OCTOBER | params).json()["items"]
 
 
-def test_hearing_notice_adds_tentative_event(client, hearing_chat):  # noqa: F811
+def pending_hearings(client):  # noqa: F811
+    return client.get("/api/deadlines/pending").json()["hearings"]
+
+
+def test_hearing_notice_waits_in_pending_not_on_calendar(client, hearing_chat):  # noqa: F811
     text = "".join(e["delta"] for e in hearing_chat if e["type"] == "text")
-    assert "미확정" in text
-    [item] = items(client)
-    assert item["source"] == "hearing" and item["status"] == "tentative"
+    assert "대기" in text
+    assert items(client) == []  # 미확정 기일은 캘린더에 오르지 않는다
+    [item] = pending_hearings(client)
+    assert item["source"] == "hearing" and item["status"] == "tentative" and item["document_id"]
     assert (item["day"], item["time"], item["location"]) == ("2026-10-15", "14:30", "제303호 법정")
     assert item["title"] == "[기일] 변론기일 · 2026가단51234" and item["created_by"] == "clerk1"
 
 
 def test_anyone_confirms_hearing_but_only_creator_or_lawyer_edits(client, hearing_chat, db):  # noqa: F811
-    event_id = items(client)[0]["id"]
+    event_id = pending_hearings(client)[0]["id"]
     make_user(db, "clerk2", "clerk")
     make_user(db, "lawyer1", "lawyer")
     other = TestClient(app)
@@ -92,6 +97,7 @@ def test_anyone_confirms_hearing_but_only_creator_or_lawyer_edits(client, hearin
     confirmed = other.patch(f"/api/events/{event_id}", json={"status": "confirmed"})
     assert confirmed.status_code == 200 and confirmed.json()["confirmed_by"] == "clerk2"
     assert other.patch(f"/api/events/{event_id}", json={"status": "confirmed"}).status_code == 403  # 이미 확정됨
+    assert pending_hearings(client) == [] and [i["id"] for i in items(client)] == [event_id]
 
     login(other, "lawyer1")
     moved = other.patch(f"/api/events/{event_id}", json={"day": "2026-10-22", "time": "10:00"}).json()
@@ -100,12 +106,14 @@ def test_anyone_confirms_hearing_but_only_creator_or_lawyer_edits(client, hearin
     assert items(client) == []
 
 
-def test_confirmed_deadline_is_on_the_calendar(client, document):  # noqa: F811
-    confirm(client, document)
+def test_only_open_deadlines_are_on_the_calendar(client, document):  # noqa: F811
+    record = confirm(client, document).json()
     [item] = items(client)
     assert item["source"] == "deadline" and item["day"] == "2026-09-28" and item["time"] is None
-    assert item["title"].startswith("[만료] 보정기한") and item["can_edit"] is False  # 사무원
+    assert item["title"].startswith("[만료] 보정기한") and item["document_id"] == document["document_id"]
     assert any(line.startswith("근거:") for line in item["details"])
+    client.patch(f"/api/deadlines/{record['id']}", json={"status": "done"})
+    assert items(client) == []  # 완료한 기한은 빠진다
 
 
 def test_calendar_returns_holidays_and_limits_range(client):  # noqa: F811
@@ -141,16 +149,17 @@ def test_manual_events_and_visibility(client, db):  # noqa: F811
 
 
 def test_pending_documents(client, document):  # noqa: F811
-    [pending] = client.get("/api/calendar/pending").json()
-    assert pending["document_id"] == document["document_id"] and pending["suggestions"]
+    [pending] = client.get("/api/deadlines/pending").json()["documents"]
+    assert pending["document_id"] == document["document_id"] and pending["suggestions"][0]["key"]
     confirm(client, document)
-    assert client.get("/api/calendar/pending").json() == []
+    assert client.get("/api/deadlines/pending").json()["documents"] == []
 
 
-def test_dismiss_pending_and_hearing_notices_are_not_pending(client, document, hearing_chat):  # noqa: F811
-    assert [p["document_type"] for p in client.get("/api/calendar/pending").json()] == ["보정명령"]
+def test_dismiss_pending_and_hearing_notices_are_not_pending_documents(client, document, hearing_chat):  # noqa: F811
+    body = client.get("/api/deadlines/pending").json()
+    assert [p["document_type"] for p in body["documents"]] == ["보정명령"] and len(body["hearings"]) == 1
     assert client.post(f"/api/documents/{document['document_id']}/dismiss-pending").status_code == 204
-    assert client.get("/api/calendar/pending").json() == []
+    assert client.get("/api/deadlines/pending").json()["documents"] == []
 
 
 # 구독 주소
@@ -158,12 +167,15 @@ def test_dismiss_pending_and_hearing_notices_are_not_pending(client, document, h
 
 def test_feed_token(client, document, hearing_chat):  # noqa: F811
     confirm(client, document)
+    hearing_id = pending_hearings(client)[0]["id"]
     path = client.post("/api/calendar/feed").json()["path"]
+    assert "변론기일" not in TestClient(app).get(path).text  # 미확정 기일은 싣지 않는다
+    client.patch(f"/api/events/{hearing_id}", json={"status": "confirmed"})
     feed = TestClient(app).get(path)  # 로그인 쿠키 없이
     assert feed.status_code == 200 and feed.headers["content-type"].startswith("text/calendar")
     body = feed.text.replace("\r\n ", "")
     assert "SUMMARY:[만료] 보정기한 · 2026가단51234" in body
-    assert "SUMMARY:(미확정) [기일] 변론기일 · 2026가단51234" in body
+    assert "SUMMARY:[기일] 변론기일 · 2026가단51234" in body
     assert "DTSTART:20261015T053000Z" in body
 
     new_path = client.post("/api/calendar/feed").json()["path"]

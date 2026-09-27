@@ -78,8 +78,9 @@ def test_confirm_unknown_document_is_404(client):  # noqa: F811
 
 
 def test_list_is_sorted_by_deadline_and_filterable(client, document):  # noqa: F811
+    # 같은 사건·같은 종류는 하나만 진행하므로 종류가 다른 두 기한(문서가 정한 기간, 항소기간)을 쓴다
     confirm(client, document, label="늦은 기한", event_date="2026-10-20")
-    confirm(client, document, label="이른 기한", event_date="2026-09-01")
+    confirm(client, document, label="이른 기한", event_date="2026-09-01", rule_id="appeal", period=None)
     labels = [d["label"] for d in client.get("/api/deadlines").json()]
     assert labels == ["이른 기한", "늦은 기한"]
     by_doc = client.get("/api/deadlines", params={"document_id": document["document_id"]}).json()
@@ -103,9 +104,7 @@ def test_unknown_deadline_status_change_is_404(client):  # noqa: F811
 
 def test_ics_export_contains_only_confirmed(client, document, db):  # noqa: F811
     keep = confirm(client, document, label="보정기한").json()
-    drop = confirm(client, document, label="취소할 기한").json()
-    make_user(db, "lawyer1", "lawyer")
-    login(client, "lawyer1")  # 취소는 변호사만 한다
+    drop = confirm(client, document, label="취소할 기한", rule_id="appeal", period=None).json()
     assert client.patch(f"/api/deadlines/{drop['id']}", json={"status": "cancelled"}).status_code == 200
     res = client.get("/api/deadlines/export.ics")
     assert res.headers["content-type"].startswith("text/calendar")

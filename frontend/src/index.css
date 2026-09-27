@@ -1877,6 +1877,132 @@ button.primary.small {
   }
 }
 
+/* 기한 목록: 대기 탭·행 팝업 */
+
+.tab-count {
+  display: inline-block;
+  min-width: 18px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 11px;
+  text-align: center;
+}
+
+.deadline-table.clickable tbody tr {
+  cursor: pointer;
+}
+
+.deadline-table.clickable tbody tr:hover {
+  background: #fafaf8;
+}
+
+.todo {
+  display: inline-block;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+}
+
+.todo.hearing {
+  background: var(--hearing-soft);
+  color: var(--hearing);
+}
+
+.modal.popup {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.popup-section {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.popup-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.popup-dl {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 14px;
+}
+
+.popup-dl dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.popup-dl dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.popup-dl dd.issue {
+  grid-column: 1 / -1;
+}
+
+.popup-dl .status-tag {
+  margin-left: 6px;
+}
+
+.popup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.popup-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.popup-form input,
+.popup-form select {
+  width: 100%;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.popup-form .inline-inputs input {
+  width: 80px;
+}
+
+.popup-form .inline-inputs select {
+  width: auto;
+}
+
+.preview-line {
+  margin: 0;
+  font-size: 14px;
+}
+
+.popup .card {
+  margin: 0;
+}
+
 /* 좁은 화면: 대화 목록은 ☰ 버튼으로 여는 덮개로, 미리보기는 전체 화면으로 연다. 기본 규칙보다 뒤에 둬야 한다. */
 
 @media (max-width: 900px) {

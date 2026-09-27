@@ -35,7 +35,7 @@ function rowsOf(doc: DocumentResult['extraction']): Row[] {
   if (doc.hearing) {
     const { date, time, kind, place, evidence } = doc.hearing
     const when = /^\d{4}-\d{2}-\d{2}$/.test(date) ? formatDate(date) : date
-    const value = [when, time, place].filter(Boolean).join(' · ') + ' (캘린더에 미확정으로 등록)'
+    const value = [when, time, place].filter(Boolean).join(' · ') + ' (기한 목록 대기 탭에서 확정)'
     rows.push({ field: 'hearing', label: kind || '기일', value, evidence })
   }
   return rows
@@ -108,6 +108,7 @@ export default function DocumentCard({
         documentId={result.document_id}
         fileId={result.file_id}
         documentType={result.extraction.document_type}
+        caseNumber={result.extraction.case_number?.value}
       />
 
       <section className="card">
