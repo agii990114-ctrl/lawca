@@ -14,14 +14,15 @@ import {
 import Composer from './chat/Composer'
 import CalendarView from './calendar/CalendarView'
 import DeadlinesView from './DeadlinesView'
+import LibraryView from './library/LibraryView'
 import MessageView from './chat/MessageView'
 import PreviewPanel from './chat/PreviewPanel'
 import Sidebar from './chat/Sidebar'
 import { fromServer, newId, type Attachment, type Message, type Preview } from './chat/types'
 
-type View = 'chat' | 'deadlines' | 'calendar'
+type View = 'chat' | 'deadlines' | 'calendar' | 'library'
 
-const EXAMPLES = ['이번 주에 만료되는 기한 알려줘', '9월 15일에 판결문을 받았으면 항소기한은?', '무엇을 할 수 있나요?']
+const EXAMPLES = ['이번 주에 만료되는 기한 알려줘', '예전에 쓴 주소보정서 찾아줘', '9월 15일에 판결문을 받았으면 항소기한은?']
 const NO_MESSAGES: Message[] = []
 
 function applyEvent(message: Message, event: ChatEvent): Message {
@@ -273,6 +274,8 @@ export default function App({ userMenu }: { userMenu: ReactNode }) {
               ? '기한'
               : view === 'calendar'
                 ? '캘린더'
+                : view === 'library'
+                  ? '자료실'
                 : (summaries.find((c) => c.id === activeId)?.title ?? '새 대화')}
           </span>
         </div>
@@ -280,6 +283,8 @@ export default function App({ userMenu }: { userMenu: ReactNode }) {
           <DeadlinesView />
         ) : view === 'calendar' ? (
           <CalendarView onOpenFile={(fileId, name) => setPreview({ fileId, name, page: 1 })} />
+        ) : view === 'library' ? (
+          <LibraryView />
         ) : activeId === null ? (
           <div className="empty">
             <h1>무엇을 도와드릴까요?</h1>
@@ -309,6 +314,10 @@ export default function App({ userMenu }: { userMenu: ReactNode }) {
                   onOpenFile={(fileId, name, page = 1) => setPreview({ fileId, name, page })}
                   onShowDeadlines={() => {
                     setView('deadlines')
+                    setPreview(null)
+                  }}
+                  onShowLibrary={() => {
+                    setView('library')
                     setPreview(null)
                   }}
                   onAnswer={answer}

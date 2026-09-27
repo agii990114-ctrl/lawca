@@ -13,7 +13,8 @@ from lawca.db.models import AuditLog, Case, Document, Message
 from lawca.extraction.gemini import ModelUnavailableError
 from lawca.extraction.schema import CourtDocument
 from tests.conftest import login, make_user
-from tests.fakes import FakeChatModel
+from lawca.api.embedding import get_embedder_factory
+from tests.fakes import FakeChatModel, FakeEmbedder
 from tests.test_extraction import correction_order
 
 
@@ -33,11 +34,13 @@ def client(db):
     app.dependency_overrides[get_models_factory] = lambda: (lambda: [FakeChatModel(tasks=[("help", "")])])
     saver = InMemorySaver()  # 테스트마다 새 체크포인터
     app.dependency_overrides[get_checkpointer] = lambda: saver
+    embedder = FakeEmbedder()  # 로컬 Ollama를 부르지 않는다
+    app.dependency_overrides[get_embedder_factory] = lambda: (lambda: embedder)
     test_client = TestClient(app)
     make_user(db, "clerk1", "clerk", "김사무")
     assert login(test_client, "clerk1").status_code == 200  # 기본은 사무원으로 로그인한다
     yield test_client
-    for dependency in (get_extractor_factory, get_models_factory, get_checkpointer):
+    for dependency in (get_extractor_factory, get_models_factory, get_checkpointer, get_embedder_factory):
         app.dependency_overrides.pop(dependency, None)
 
 

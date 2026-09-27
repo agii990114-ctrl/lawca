@@ -27,6 +27,8 @@ SYSTEM = """\
 - 결과가 없으면 없다고 말하고, 기한은 문서 카드에서 확정해야 목록에 나온다고 안내합니다.
 - compute_deadline 결과는 저장되지 않은 계산값이라고 알립니다.
 - 사건을 특정할 수 없으면 추측하지 말고 어떤 사건인지 되묻습니다.
+- 예전 서면·서식·문서를 찾아 달라거나 "비슷한 사례", "전에 쓴 ~"을 물으면 search_library로 자료실을 찾습니다.
+  찾은 내용은 문서 제목을 밝혀 인용하고, 자료실에 없는 내용을 지어내지 않습니다.
 - 법률 판단(승소 가능성, 불복 여부 등)은 하지 않습니다.
 """
 
@@ -39,6 +41,7 @@ def run_query(
     today: date,
     emit: Emit,
     step_prefix: str = "q",
+    embedder: Any = None,
 ) -> str:
     """조회를 실행하고 실제로 쓴 모델 이름을 돌려준다.
 
@@ -70,7 +73,7 @@ def run_query(
             for index, call in enumerate(calls):
                 step_id = f"{step_prefix}-{step}-{index}"
                 emit({"type": "status", "id": step_id, "label": "조회 중", "state": "running"})
-                outcome = run_tool(call.name, call.args, session, today)
+                outcome = run_tool(call.name, call.args, session, today, embedder)
                 state = "error" if "error" in outcome.result else "done"
                 emit({"type": "status", "id": step_id, "label": outcome.label, "state": state})
                 key = json.dumps([call.name, call.args], sort_keys=True, ensure_ascii=False)

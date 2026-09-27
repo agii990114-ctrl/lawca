@@ -273,3 +273,12 @@ def test_postgres_checkpointer_survives_new_graph_instance(test_factory):
     with ConnectionPool(conninfo, kwargs=kwargs) as pool:
         result = build(PostgresSaver(pool)).invoke(Command(resume="2026-09-20"), config)
     assert result == {"answer": "2026-09-20"}
+
+
+def test_draft_is_indexed_in_library(client, case_ready):  # noqa: F811
+    values = {"applicant": "원고 홍길동", "judgment_date": "2026-09-01", "finality_date": "2026-09-20"}
+    ask_for(client, "확정증명원", (FINALITY, "2026가단51234", values))
+    [doc] = client.get("/api/library", params={"kind": "draft"}).json()
+    assert doc["title"] == "확정증명원 신청서_2026가단51234_초안" and doc["case_number"] == "2026가단51234"
+    hits = client.get("/api/library/search", params={"q": "확정되었음을 증명"}).json()["hits"]
+    assert hits and hits[0]["doc"]["kind"] == "draft"

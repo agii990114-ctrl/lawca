@@ -49,3 +49,29 @@ class FakeChatModel:
         chunks = self.script.pop(0) if self.script else []
         yield from chunks
         yield TurnEnd(None)
+
+
+class FakeEmbedder:
+    """글자 두 개씩(바이그램)을 1024칸에 흩어 담는 가짜 임베딩. 겹치는 글자가 많을수록 가깝다."""
+
+    model = "fake-embed"
+
+    def __init__(self, unavailable: bool = False) -> None:
+        self.unavailable = unavailable
+        self.calls = 0
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        from lawca.library import EMBED_DIM, EmbeddingUnavailable
+
+        if self.unavailable:
+            raise EmbeddingUnavailable("가짜 임베딩 꺼짐")
+        self.calls += 1
+        out = []
+        for text in texts:
+            vector = [0.0] * EMBED_DIM
+            compact = "".join(text.split())
+            for a, b in zip(compact, compact[1:]):
+                vector[hash(a + b) % EMBED_DIM] += 1.0
+            norm = sum(x * x for x in vector) ** 0.5 or 1.0
+            out.append([x / norm for x in vector])
+        return out

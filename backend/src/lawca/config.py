@@ -43,6 +43,9 @@ class Settings(BaseSettings):
         default="gemini-3.1-flash-lite", validation_alias="GEMINI_EXTRACTION_FALLBACK_MODELS"
     )
     max_upload_mb: int = 20
+    # 자료실 검색의 임베딩 모델(로컬 Ollama). 끄면 키워드 검색만 한다.
+    embedding_model: str = Field(default="bge-m3", validation_alias="EMBEDDING_MODEL")
+    embeddings_enabled: bool = Field(default=True, validation_alias="EMBEDDINGS_ENABLED")
     # 로그인 쿠키를 HTTPS에서만 보낸다. 운영(HTTPS)에서는 켠다.
     cookie_secure: bool = Field(default=False, validation_alias="COOKIE_SECURE")
     # docker-compose.yml의 개발용 PostgreSQL. 운영에서는 DATABASE_URL로 바꾼다.

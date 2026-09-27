@@ -1,6 +1,6 @@
 """DB 테이블 정의.
 
-지금 저장하는 것: 사용자·로그인 세션, 대화·메시지, 일정(기일·직접 입력), 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 서식 초안,
+지금 저장하는 것: 사용자·로그인 세션, 대화·메시지, 일정(기일·직접 입력), 자료실(문서·조각·임베딩), 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 서식 초안,
 작업(Job, 되묻기로 멈춘 LangGraph 실행), 감사 기록.
 """
 
@@ -24,10 +24,41 @@ from sqlalchemy import (
     Text,
     Time,
     UniqueConstraint,
+    cast,
     func,
 )
+from sqlalchemy.types import UserDefinedType
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Vector(UserDefinedType):
+    """pgvector의 vector(n). 파이썬 쪽은 float 목록이다. 값은 '[1,2,3]' 글로 보내고 vector로 바꾼다."""
+
+    cache_ok = True
+
+    def __init__(self, dim: int) -> None:
+        self.dim = dim
+
+    def get_col_spec(self, **kw: Any) -> str:
+        return f"vector({self.dim})"
+
+    def bind_expression(self, bindvalue: Any) -> Any:
+        return cast(bindvalue, self)
+
+    def bind_processor(self, dialect: Any):  # noqa: ANN201
+        def process(value: list[float] | None) -> str | None:
+            return None if value is None else "[" + ",".join(f"{x:.7g}" for x in value) + "]"
+
+        return process
+
+    def result_processor(self, dialect: Any, coltype: Any):  # noqa: ANN201
+        def process(value: Any) -> list[float] | None:
+            if value is None or isinstance(value, list):
+                return value
+            return [float(x) for x in str(value).strip("[]").split(",")]
+
+        return process
 
 
 class Base(DeclarativeBase):
@@ -292,3 +323,53 @@ class AuditLog(Base):
     target_type: Mapped[str] = mapped_column(String(40))
     target_id: Mapped[str] = mapped_column(String(64))
     detail: Mapped[dict[str, Any]] = mapped_column(default=dict)
+
+
+class LibraryDoc(Timestamped, Base):
+    """자료실 문서. 사람이 올린 과거 서면·서식, 채팅에서 처리한 법원 문서, lawca가 만든 초안."""
+
+    __tablename__ = "library_docs"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_uuid)
+    title: Mapped[str] = mapped_column(String(300))
+    kind: Mapped[str] = mapped_column(String(20), index=True)
+    """filing(서면) | form(서식) | court(법원 문서) | draft(lawca 초안) | other"""
+    file_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("files.id"))
+    case_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("cases.id"), index=True)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), unique=True)
+    draft_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("drafts.id", ondelete="CASCADE"), unique=True)
+    created_by: Mapped[str] = mapped_column(String(50))
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    embedded: Mapped[bool] = mapped_column(Boolean, default=False)
+    """모든 조각에 임베딩이 있는지. false면 키워드로만 찾힌다."""
+    embedding_model: Mapped[str | None] = mapped_column(String(100))
+
+    file: Mapped[File] = relationship()
+    case: Mapped[Case | None] = relationship()
+    chunks: Mapped[list[LibraryChunk]] = relationship(
+        back_populates="doc", order_by="LibraryChunk.seq", cascade="all, delete-orphan"
+    )
+
+
+class LibraryChunk(Base):
+    """자료실 문서의 조각. 키워드(트라이그램)와 의미(벡터)로 찾는다."""
+
+    __tablename__ = "library_chunks"
+    __table_args__ = (
+        Index("ix_library_chunks_text_trgm", "text", postgresql_using="gin", postgresql_ops={"text": "gin_trgm_ops"}),
+        Index(
+            "ix_library_chunks_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    doc_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("library_docs.id", ondelete="CASCADE"), index=True)
+    seq: Mapped[int] = mapped_column(Integer)
+    page: Mapped[int | None] = mapped_column(Integer)
+    text: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+
+    doc: Mapped[LibraryDoc] = relationship(back_populates="chunks")

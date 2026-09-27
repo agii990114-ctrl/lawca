@@ -1,0 +1,279 @@
+"""자료실 저장과 검색. 커밋은 호출하는 쪽이 한다.
+
+검색은 두 가지를 섞는다(Reciprocal Rank Fusion).
+- 키워드: 검색어 낱말이 조각에 들어 있는지(ILIKE)와 트라이그램 유사도. 사건번호·서식 이름처럼 정확히 맞아야 하는 것.
+- 의미: bge-m3 임베딩의 코사인 거리. "주소를 모를 때 쓰는 서면"처럼 표현이 달라도 비슷한 내용.
+한 문서에서 가장 잘 맞는 조각 하나를 대표로 보여 준다.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+import uuid
+from dataclasses import dataclass, field
+
+from sqlalchemy import Float, Integer, cast, delete, func, literal, or_, select
+from sqlalchemy.orm import Session, selectinload
+
+from lawca.db import repo
+from lawca.db.models import Case, Draft, File, LibraryChunk, LibraryDoc
+from lawca.library import (
+    KINDS,
+    Embedder,
+    EmbeddingUnavailable,
+    chunk_pages,
+    extract_pages,
+)
+
+log = logging.getLogger(__name__)
+RRF_K = 60
+CANDIDATES = 40
+MIN_TERM = 2
+# 의미 검색 기준(bge-m3 코사인 거리). 합성 서면 4건으로 맞춘 값이라 실제 자료가 쌓이면 다시 맞춘다.
+# - 관련 있는 자료는 대개 0.45 이하, 관련 없는 자료는 0.55 이상이었다.
+SEMANTIC_MAX = 0.52
+SEMANTIC_BAND = 0.04
+"""가장 가까운 자료보다 이만큼 이상 먼 자료는 뺀다(관련 없는 자료가 줄줄이 붙지 않게)."""
+
+
+def _embed(embedder: Embedder | None, texts: list[str]) -> list[list[float]] | None:
+    if embedder is None or not texts:
+        return None
+    try:
+        return embedder.embed(texts)
+    except EmbeddingUnavailable as exc:
+        log.warning("임베딩 없이 저장합니다: %s", exc)
+        return None
+
+
+def _fill(doc: LibraryDoc, pages: list[str], embedder: Embedder | None) -> None:
+    pieces = chunk_pages(pages)
+    vectors = _embed(embedder, [p.text for p in pieces])
+    doc.chunks = [
+        LibraryChunk(seq=i, page=p.page, text=p.text, embedding=vectors[i] if vectors else None)
+        for i, p in enumerate(pieces)
+    ]
+    doc.chunk_count = len(pieces)
+    doc.embedded = bool(vectors) and len(pieces) > 0
+    doc.embedding_model = embedder.model if vectors and embedder else None
+
+
+def add(
+    session: Session,
+    *,
+    title: str,
+    kind: str,
+    file: File,
+    mime: str,
+    case: Case | None,
+    embedder: Embedder | None,
+    document_id: uuid.UUID | None = None,
+    draft_id: uuid.UUID | None = None,
+) -> LibraryDoc:
+    """파일의 글을 뽑아 조각으로 저장한다. 글이 없는 파일(스캔본)은 조각 없이 저장한다."""
+    if kind not in KINDS:
+        raise ValueError(f"알 수 없는 종류입니다: {kind}")
+    doc = LibraryDoc(
+        title=title.strip()[:300],
+        kind=kind,
+        file_id=file.id,
+        case_id=case.id if case else None,
+        document_id=document_id,
+        draft_id=draft_id,
+        created_by=repo.actor(session),
+    )
+    session.add(doc)
+    _fill(doc, extract_pages(file.data, mime), embedder)
+    session.flush()
+    repo.audit(session, "library.add", "library_doc", doc.id, {"kind": kind, "title": doc.title, "chunks": doc.chunk_count})
+    return doc
+
+
+def reindex(session: Session, doc: LibraryDoc, embedder: Embedder | None) -> LibraryDoc:
+    """임베딩이 빠진 문서를 다시 자르고 임베딩한다(Ollama가 꺼져 있을 때 올린 문서)."""
+    _fill(doc, extract_pages(doc.file.data, doc.file.mime), embedder)
+    session.flush()
+    return doc
+
+
+def index_court_document(session: Session, document_id: str, embedder: Embedder | None) -> LibraryDoc | None:
+    """채팅에서 처리한 법원 문서를 자료실에 넣는다. 이미 있거나 글이 없으면 넘어간다."""
+    document = repo.get_document(session, document_id)
+    if document is None or session.scalars(select(LibraryDoc).where(LibraryDoc.document_id == document.id)).first():
+        return None
+    file = session.get(File, document.file_id)
+    if file is None or file.mime != "application/pdf" or not any(p.strip() for p in extract_pages(file.data, file.mime)):
+        return None  # 스캔본처럼 글이 없으면 검색할 것이 없다
+    case = session.get(Case, document.case_id) if document.case_id else None
+    number = f" {case.case_number}" if case else ""
+    return add(
+        session,
+        title=f"{document.document_type}{number} ({file.name})",
+        kind="court",
+        file=file,
+        mime=file.mime,
+        case=case,
+        embedder=embedder,
+        document_id=document.id,
+    )
+
+
+def index_draft(session: Session, draft_id: str, embedder: Embedder | None) -> LibraryDoc | None:
+    parsed = repo._parse_id(draft_id)
+    draft = session.get(Draft, parsed) if parsed else None
+    if draft is None:
+        return None
+    file = session.get(File, draft.file_id)
+    assert file is not None
+    return add(
+        session, title=file.name.removesuffix(".docx"), kind="draft", file=file, mime=file.mime,
+        case=draft.case, embedder=embedder, draft_id=draft.id,
+    )
+
+
+def list_docs(session: Session, kind: str | None = None, limit: int = 200) -> list[LibraryDoc]:
+    query = (
+        select(LibraryDoc)
+        .options(selectinload(LibraryDoc.case), selectinload(LibraryDoc.file))
+        .order_by(LibraryDoc.created_at.desc())
+        .limit(limit)
+    )
+    if kind:
+        query = query.where(LibraryDoc.kind == kind)
+    return list(session.scalars(query))
+
+
+def get_doc(session: Session, doc_id: str) -> LibraryDoc | None:
+    parsed = repo._parse_id(doc_id)
+    if parsed is None:
+        return None
+    query = select(LibraryDoc).where(LibraryDoc.id == parsed).options(selectinload(LibraryDoc.file), selectinload(LibraryDoc.case))
+    return session.scalars(query).first()
+
+
+UPLOADED_KINDS = ("filing", "form", "other")
+
+
+def remove(session: Session, doc: LibraryDoc) -> None:
+    """자료실에서 뺀다. 자료실에 직접 올린 파일은 함께 지우고, 법원 문서·초안의 원본은 그대로 둔다."""
+    repo.audit(session, "library.delete", "library_doc", doc.id, {"title": doc.title, "kind": doc.kind})
+    file_id = doc.file_id if doc.kind in UPLOADED_KINDS else None
+    session.execute(delete(LibraryChunk).where(LibraryChunk.doc_id == doc.id))
+    session.delete(doc)
+    session.flush()
+    if file_id is not None:
+        session.execute(delete(File).where(File.id == file_id))
+        session.flush()
+
+
+# 검색
+
+
+@dataclass
+class Hit:
+    doc: LibraryDoc
+    chunk: LibraryChunk
+    score: float
+    matched: set[str] = field(default_factory=set)
+    """keyword | semantic"""
+
+
+def terms_of(query: str) -> list[str]:
+    """검색어 낱말. 조사가 붙은 말도 찾도록 두 글자 이상 낱말만 쓴다."""
+    words = re.findall(r"[\w가-힣]+", query)
+    return list(dict.fromkeys(w for w in words if len(w) >= MIN_TERM))[:8]
+
+
+def _filters(query, kind: str | None, case_number: str | None):  # noqa: ANN001, ANN202
+    query = query.join(LibraryDoc, LibraryChunk.doc_id == LibraryDoc.id)
+    if kind:
+        query = query.where(LibraryDoc.kind == kind)
+    if case_number:
+        number = re.sub(r"\s+", "", case_number)
+        query = query.join(Case, LibraryDoc.case_id == Case.id).where(Case.case_number == number)
+    return query
+
+
+def search(
+    session: Session,
+    text: str,
+    embedder: Embedder | None,
+    *,
+    kind: str | None = None,
+    case_number: str | None = None,
+    limit: int = 8,
+) -> list[Hit]:
+    text = text.strip()
+    if not text:
+        return []
+    ranks: dict[int, float] = {}
+    matched: dict[int, set[str]] = {}
+
+    terms = terms_of(text) or [text]
+    hits = [cast(LibraryChunk.text.ilike(f"%{t}%"), Integer) for t in terms]
+    matched_terms = sum(hits[1:], hits[0])
+    keyword_score = matched_terms + func.word_similarity(text, LibraryChunk.text)
+    # 검색어 낱말의 절반 이상이 들어 있어야 한다("피고" 같은 흔한 낱말 하나만 맞는 자료는 빼려고)
+    needed = max(1, (len(terms) + 1) // 2)
+    keyword = _filters(
+        select(LibraryChunk.id, keyword_score.label("score"))
+        .where(or_(matched_terms >= needed, func.word_similarity(text, LibraryChunk.text) > 0.5))
+        .order_by(keyword_score.desc())
+        .limit(CANDIDATES),
+        kind,
+        case_number,
+    )
+    for rank, (chunk_id, _) in enumerate(session.execute(keyword)):
+        ranks[chunk_id] = ranks.get(chunk_id, 0) + 1 / (RRF_K + rank + 1)
+        matched.setdefault(chunk_id, set()).add("keyword")
+
+    vector = _embed(embedder, [text])
+    if vector:
+        distance = LibraryChunk.embedding.op("<=>", return_type=Float)(literal(vector[0], LibraryChunk.embedding.type))
+        semantic = _filters(
+            select(LibraryChunk.id, distance.label("distance"))
+            .where(LibraryChunk.embedding.isnot(None))
+            .order_by(distance)
+            .limit(CANDIDATES),
+            kind,
+            case_number,
+        )
+        rows = session.execute(semantic).all()
+        cutoff = min(SEMANTIC_MAX, rows[0][1] + SEMANTIC_BAND) if rows else 0
+        for rank, (chunk_id, dist) in enumerate(rows):
+            if dist > cutoff:
+                break
+            ranks[chunk_id] = ranks.get(chunk_id, 0) + 1 / (RRF_K + rank + 1)
+            matched.setdefault(chunk_id, set()).add("semantic")
+
+    if not ranks:
+        return []
+    chunks = {
+        c.id: c
+        for c in session.scalars(
+            select(LibraryChunk)
+            .where(LibraryChunk.id.in_(ranks))
+            .options(selectinload(LibraryChunk.doc).selectinload(LibraryDoc.case), selectinload(LibraryChunk.doc).selectinload(LibraryDoc.file))
+        )
+    }
+    best: dict[uuid.UUID, Hit] = {}
+    for chunk_id, score in sorted(ranks.items(), key=lambda kv: -kv[1]):
+        chunk = chunks[chunk_id]
+        if chunk.doc_id not in best:
+            best[chunk.doc_id] = Hit(chunk.doc, chunk, score, matched[chunk_id])
+    return list(best.values())[:limit]
+
+
+def snippet(text: str, terms: list[str], width: int = 180) -> str:
+    """검색어가 처음 나오는 곳 둘레를 잘라 보여 준다."""
+    flat = re.sub(r"\s+", " ", text)
+    positions = [flat.find(t) for t in terms if flat.find(t) >= 0]
+    start = max(0, min(positions) - width // 3) if positions else 0
+    piece = flat[start : start + width]
+    return ("…" if start > 0 else "") + piece + ("…" if start + width < len(flat) else "")
+
+
+def kind_label(kind: str) -> str:
+    return KINDS.get(kind, kind)
+

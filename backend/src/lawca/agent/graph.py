@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date
@@ -33,9 +34,11 @@ from lawca.agent.query_agent import run_query
 from lawca.agent.router import route_text
 from lawca.api.schemas import DocumentOut
 from lawca.db import repo
+from lawca.library import store as library_store
 from lawca.db.models import File
 from lawca.extraction.gemini import ExtractionError, Extractor, ModelUnavailableError
 
+log = logging.getLogger(__name__)
 GRAPH_VERSION = "2"
 """노드 구성을 바꾸면 올린다. 멈춰 있던 작업의 체크포인트가 새 그래프와 맞는지 판단하는 데 쓴다."""
 
@@ -53,6 +56,8 @@ class Deps:
     on_document: Callable[[DocumentOut], str | None]
     make_models: Callable[[], list[ChatModel]]
     job_id: Any = None
+    make_embedder: Callable[[], Any] = lambda: None
+    """자료실 색인·검색에 쓰는 임베딩 모델(없으면 키워드만)."""
 
 
 class ChatState(TypedDict, total=False):
@@ -131,6 +136,16 @@ def next_task(state: ChatState) -> str:
     return NODE_FOR_LABEL.get(label, label)
 
 
+def _index(deps: Deps, add: Callable[[Any], Any]) -> None:
+    """자료실에 넣는다. 실패해도 채팅 흐름은 멈추지 않는다(검색에서만 빠진다)."""
+    try:
+        add(deps.make_embedder())
+        deps.session.commit()
+    except Exception:  # noqa: BLE001
+        deps.session.rollback()
+        log.exception("자료실 색인 실패")
+
+
 def _existing_note(session: Session, document_id: str | None, result: DocumentOut) -> str:
     """사건번호로 DB를 찾아, 같은 종류로 이미 진행 중인 기한이 있으면 알린다(새로 확정할 수 없다)."""
     if not document_id or not result.suggestions:
@@ -172,6 +187,7 @@ def document(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
         document_id = deps.on_document(result)
         if document_id:
             result = result.model_copy(update={"document_id": document_id})
+            _index(deps, lambda embedder: library_store.index_court_document(deps.session, document_id, embedder))
         write({"type": "status", "id": step, "label": f"{stored.name} 읽음 · {result.model}", "state": "done"})
         write({"type": "text", "delta": prefix + summarize(result) + _existing_note(deps.session, document_id, result)})
         write({"type": "card", "card": {"kind": "document", **result.model_dump(mode="json")}})
@@ -192,6 +208,7 @@ def query(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
             deps.today,
             write,
             step_prefix=f"q{state['index']}",
+            embedder=deps.make_embedder(),
         )
     except (ModelUnavailableError, ExtractionError, ModelsNotConfigured) as exc:
         write({"type": "text", "delta": f"조회하지 못했습니다. {exc} 잠시 뒤 다시 시도해 주세요."})
@@ -239,6 +256,7 @@ def draft_render(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
     step = f"render-{state['index']}"
     write({"type": "status", "id": step, "label": "초안 만드는 중", "state": "running"})
     card = drafting.save(state["draft"] or {}, deps.session, deps.job_id)
+    _index(deps, lambda embedder: library_store.index_draft(deps.session, card["draft_id"], embedder))
     write({"type": "status", "id": step, "label": f"초안 완성: {card['filename']}", "state": "done"})
     note = f" 빈칸으로 둔 항목: {', '.join(card['blanks'])}." if card["blanks"] else ""
     write(

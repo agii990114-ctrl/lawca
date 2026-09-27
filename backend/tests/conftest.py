@@ -27,6 +27,9 @@ def test_factory() -> Iterator[sessionmaker[Session]]:
         engine.connect().close()
     except OperationalError:
         pytest.skip("테스트 DB에 연결할 수 없습니다. 레포 루트에서 docker compose up -d 로 띄우세요.")
+    with engine.begin() as conn:  # 자료실 검색에 쓰는 확장(docker-compose 이미지에 들어 있다)
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     yield sessionmaker(engine, expire_on_commit=False)

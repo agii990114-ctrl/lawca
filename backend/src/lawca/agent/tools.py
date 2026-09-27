@@ -19,6 +19,7 @@ from lawca.api.records import record_out
 from lawca.api.schemas import DeadlineOut
 from lawca.db import repo
 from lawca.db.models import Case, Deadline
+from lawca.library import store as library_store
 from lawca.deadlines import (
     CalendarCoverageError,
     Period,
@@ -86,6 +87,26 @@ def _specs() -> list[ToolSpec]:
                 "type": "object",
                 "properties": {"case_number": {"type": "string", "description": "예: 2026가단12345"}},
                 "required": ["case_number"],
+            },
+        ),
+        ToolSpec(
+            name="search_library",
+            description=(
+                "자료실(법인이 올린 과거 서면·서식, 처리한 법원 문서, lawca가 만든 초안)에서 내용을 찾는다. "
+                "키워드와 의미로 함께 찾고, 문서마다 가장 맞는 부분을 돌려준다."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "찾을 내용. 예: 공시송달 신청 사유, 주소보정서"},
+                    "kind": {
+                        "type": "string",
+                        "enum": ["filing", "form", "court", "draft", "other"],
+                        "description": "filing(서면), form(서식), court(법원 문서), draft(lawca 초안). 모르면 비운다",
+                    },
+                    "case_number": {"type": "string", "description": "특정 사건 자료만 찾을 때"},
+                },
+                "required": ["query"],
             },
         ),
         ToolSpec(
@@ -237,7 +258,45 @@ HANDLERS = {
 }
 
 
-def run_tool(name: str, args: dict[str, Any], session: Session, today: date) -> ToolOutcome:
+def search_library(session: Session, args: dict[str, Any], embedder: Any) -> ToolOutcome:
+    query = str(args.get("query") or "").strip()
+    if not query:
+        raise ValueError("찾을 내용이 비어 있습니다.")
+    hits = library_store.search(
+        session, query, embedder, kind=args.get("kind") or None, case_number=args.get("case_number") or None, limit=6
+    )
+    terms = library_store.terms_of(query)
+    items = [
+        {
+            "doc_id": str(h.doc.id),
+            "title": h.doc.title,
+            "kind": h.doc.kind,
+            "kind_label": library_store.kind_label(h.doc.kind),
+            "snippet": library_store.snippet(h.chunk.text, terms),
+            "page": h.chunk.page,
+            "file_id": str(h.doc.file_id),
+            "filename": h.doc.file.name,
+            "case_number": h.doc.case.case_number if h.doc.case else None,
+            "created_at": h.doc.created_at.date().isoformat(),
+            "matched": sorted(h.matched),
+        }
+        for h in hits
+    ]
+    result = {
+        "count": len(items),
+        "semantic": embedder is not None,
+        "results": [{**i, "text": h.chunk.text[:800]} for i, h in zip(items, hits)],
+    }
+    card = {"kind": "search", "query": query, "items": items}
+    return ToolOutcome(label=f"자료실 검색: {query}", result=result, card=card)
+
+
+def run_tool(name: str, args: dict[str, Any], session: Session, today: date, embedder: Any = None) -> ToolOutcome:
+    if name == "search_library":
+        try:
+            return search_library(session, args, embedder)
+        except ValueError as exc:
+            return ToolOutcome(label=name, result={"error": str(exc)})
     handler = HANDLERS.get(name)
     if handler is None:
         return ToolOutcome(label=name, result={"error": f"알 수 없는 도구입니다: {name}"})

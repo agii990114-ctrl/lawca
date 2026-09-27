@@ -99,6 +99,17 @@ compute_designated_deadline(date(2026, 9, 1), Period(7, Unit.DAY)).deadline  # �
 - **내 일정**은 내가 확정했거나 만든 기한·일정만 보여 줍니다.
 - **휴대폰·Outlook**: 개인 구독 주소(ICS)를 만들어 캘린더 앱에 넣으면 자동으로 따라옵니다. 주소는 한 번만 보여 주고, 다시 만들면 예전 주소는 끊깁니다. Google 캘린더처럼 외부 서버가 가져가는 앱은 lawca가 외부에서 접속 가능한 서버에 있어야 합니다.
 
+### 자료실 (RAG, `lawca.library`)
+
+- 사이드바의 **자료실**에서 과거 서면·서식(PDF·DOCX·TXT)을 올리고 찾습니다. 채팅에서 처리한 법원 문서(글이 있는 PDF)와 lawca가 만든 초안은 자동으로 들어갑니다.
+- 글을 문단 단위로 잘라 PostgreSQL에 저장하고, 두 가지로 함께 찾습니다(결과를 RRF로 합침).
+  - 키워드: 검색어 낱말의 절반 이상이 들어 있는 조각(pg_trgm). 사건번호·서식 이름처럼 정확히 맞아야 하는 것.
+  - 의미: 로컬 Ollama의 `bge-m3` 임베딩(pgvector). 표현이 달라도 비슷한 내용. 문서가 밖으로 나가지 않고 API 사용량도 없습니다.
+- 채팅에서 "예전에 쓴 주소보정서 찾아줘"처럼 물으면 조회 에이전트가 자료실을 찾아 원문 조각과 함께 답합니다.
+- 임베딩 모델: `ollama pull bge-m3`(약 1.2GB). Ollama가 꺼져 있으면 키워드로만 찾히고, 자료 목록의 **다시 색인**으로 나중에 임베딩합니다. `EMBEDDINGS_ENABLED=false`로 끌 수 있습니다.
+- 의미 검색 기준(거리 0.52 이하, 가장 가까운 자료와 0.04 이내)은 합성 서면 4건으로 맞춘 값입니다. 실제 자료가 쌓이면 다시 맞춥니다.
+- 스캔본 PDF와 HWP는 아직 읽지 못합니다.
+
 ### 기한 목록
 
 | 탭 | 보이는 것 | 할 수 있는 것 |
@@ -133,7 +144,7 @@ cd backend && uv run python eval/run.py --only scan --limit 3
 
 ## 기술 스택(계획)
 
-Python · FastAPI · LangGraph · Gemini Flash · PostgreSQL(pgvector) · React
+Python · FastAPI · LangGraph · Gemini Flash Lite · Ollama(gemma4, bge-m3) · PostgreSQL(pgvector, pg_trgm) · React
 
 ## 로드맵
 

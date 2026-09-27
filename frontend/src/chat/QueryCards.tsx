@@ -1,4 +1,4 @@
-import type { CaseSummary, DeadlineRecord, DeadlineResult } from '../api'
+import { fileUrl, type CaseSummary, type DeadlineRecord, type DeadlineResult, type SearchCardItem } from '../api'
 import { dDay, daysUntil, formatDate } from '../format'
 
 type OpenFile = (fileId: string, name: string) => void
@@ -125,6 +125,41 @@ export function DeadlineCalcCard({ result }: { result: DeadlineResult & { label:
           {w}
         </p>
       ))}
+    </section>
+  )
+}
+
+// 자료실 검색 결과. 원문 조각을 그대로 보여 주고 원본 파일로 이어 준다.
+export function SearchCard({ query, items, onShowLibrary }: { query: string; items: SearchCardItem[]; onShowLibrary: () => void }) {
+  return (
+    <section className="card">
+      <header className="card-header">
+        <h3>자료실 검색 · {query}</h3>
+        <button type="button" className="link-button" onClick={onShowLibrary}>
+          자료실에서 보기
+        </button>
+      </header>
+      {items.length === 0 ? (
+        <p className="muted">찾은 자료가 없습니다. 과거 서면·서식을 자료실에 올리면 검색할 수 있습니다.</p>
+      ) : (
+        <ul className="search-list">
+          {items.map((item) => (
+            <li key={item.doc_id}>
+              <div className="search-title">
+                <span className={`kind-tag ${item.kind}`}>{item.kind_label}</span>
+                <a href={fileUrl(item.file_id, item.page ?? 1)} target="_blank" rel="noreferrer">
+                  {item.title}
+                </a>
+              </div>
+              <p className="search-snippet">{item.snippet}</p>
+              <p className="muted small-note">
+                {[item.case_number, item.page ? `${item.page}쪽` : null, item.created_at].filter(Boolean).join(' · ')}
+                {item.matched.includes('semantic') && !item.matched.includes('keyword') && ' · 뜻이 비슷한 자료'}
+              </p>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   )
 }

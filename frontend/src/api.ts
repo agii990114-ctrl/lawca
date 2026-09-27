@@ -122,6 +122,21 @@ export type Card =
   | ({ kind: 'deadline_calc'; label: string } & DeadlineResult)
   | ({ kind: 'question' } & QuestionCardData)
   | ({ kind: 'draft' } & DraftCardData)
+  | { kind: 'search'; query: string; items: SearchCardItem[] }
+
+export interface SearchCardItem {
+  doc_id: string
+  title: string
+  kind: LibraryKind
+  kind_label: string
+  snippet: string
+  page: number | null
+  file_id: string
+  filename: string
+  case_number: string | null
+  created_at: string
+  matched: ('keyword' | 'semantic')[]
+}
 
 export interface DeadlineResult {
   event_date: string
@@ -555,3 +570,59 @@ export const dismissPending = (documentId: string) =>
   send(`/api/documents/${documentId}/dismiss-pending`, { method: 'POST' })
 
 export const issueFeed = () => getJson<{ path: string }>('/api/calendar/feed', { method: 'POST' })
+
+// 자료실
+
+export type LibraryKind = 'filing' | 'form' | 'court' | 'draft' | 'other'
+
+export const LIBRARY_KINDS: { value: LibraryKind; label: string }[] = [
+  { value: 'filing', label: '서면' },
+  { value: 'form', label: '서식' },
+  { value: 'court', label: '법원 문서' },
+  { value: 'draft', label: 'lawca 초안' },
+  { value: 'other', label: '기타' },
+]
+
+export interface LibraryDoc {
+  id: string
+  title: string
+  kind: LibraryKind
+  kind_label: string
+  file_id: string
+  filename: string
+  mime: string
+  case_number: string | null
+  created_by: string
+  created_at: string
+  chunk_count: number
+  embedded: boolean
+  can_delete: boolean
+}
+
+export interface LibrarySearch {
+  query: string
+  semantic: boolean
+  hits: { doc: LibraryDoc; snippet: string; page: number | null; matched: ('keyword' | 'semantic')[] }[]
+}
+
+export function listLibrary(kind?: LibraryKind) {
+  return getJson<LibraryDoc[]>(`/api/library${kind ? `?kind=${kind}` : ''}`)
+}
+
+export function searchLibrary(q: string, kind?: LibraryKind) {
+  const query = new URLSearchParams({ q })
+  if (kind) query.set('kind', kind)
+  return getJson<LibrarySearch>(`/api/library/search?${query}`)
+}
+
+export function uploadLibrary(file: File, form: { kind: LibraryKind; title: string; case_number: string }) {
+  const body = new FormData()
+  body.append('file', file)
+  body.append('kind', form.kind)
+  if (form.title.trim()) body.append('title', form.title.trim())
+  if (form.case_number.trim()) body.append('case_number', form.case_number.trim())
+  return getJson<LibraryDoc>('/api/library', { method: 'POST', body })
+}
+
+export const deleteLibrary = (id: string) => send(`/api/library/${id}`, { method: 'DELETE' })
+export const reindexLibrary = (id: string) => getJson<LibraryDoc>(`/api/library/${id}/reindex`, { method: 'POST' })

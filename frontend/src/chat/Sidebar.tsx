@@ -15,11 +15,11 @@ export default function Sidebar({
   conversations: ConversationSummary[]
   activeId: string | null
   loadError: string | null
-  view: 'chat' | 'deadlines' | 'calendar'
+  view: 'chat' | 'deadlines' | 'calendar' | 'library'
   open: boolean
   onSelect: (id: string) => void
   onNew: () => void
-  onShowView: (view: 'deadlines' | 'calendar') => void
+  onShowView: (view: 'deadlines' | 'calendar' | 'library') => void
   footer?: ReactNode
 }) {
   return (
@@ -41,6 +41,13 @@ export default function Sidebar({
         onClick={() => onShowView('deadlines')}
       >
         기한 목록
+      </button>
+      <button
+        type="button"
+        className={`nav-item${view === 'library' ? ' active' : ''}`}
+        onClick={() => onShowView('library')}
+      >
+        자료실
       </button>
       <div className="sidebar-label">대화</div>
       {loadError && <p className="issue error">{loadError}</p>}

@@ -23,6 +23,8 @@ from lawca.api.calendar import router as calendar_router
 from lawca.api.chat import answer_summary, chat_events, resume_events
 from lawca.api.deps import DB, CurrentUser, Lawyer, SessionFactory, Worker
 from lawca.api.documents_api import router as documents_router
+from lawca.api.embedding import EmbedderFactory
+from lawca.api.library_api import router as library_router
 from lawca.api.users import router as users_router
 from lawca.api.records import record_out
 from lawca.api.schemas import (
@@ -65,6 +67,7 @@ app = FastAPI(title="lawca API", version="0.1.0")
 app.include_router(users_router)
 app.include_router(calendar_router)
 app.include_router(documents_router)
+app.include_router(library_router)
 
 UNITS = {u.value: u for u in Unit}
 
@@ -246,6 +249,7 @@ def _respond(
     make_extractor: Callable[[], Extractor],
     make_models: Callable[[], list[ChatModel]],
     actor: str,
+    make_embedder: Callable[[], Any] = lambda: None,
 ) -> StreamingResponse:
     """그래프 이벤트를 SSE로 흘려보내고, 끝나면 답변 메시지와 작업(Job) 상태를 저장한다.
 
@@ -272,6 +276,7 @@ def _respond(
                 on_document=on_document,
                 make_models=make_models,
                 job_id=job_id,
+                make_embedder=make_embedder,
             )
             try:
                 for event in make_events(deps):
@@ -312,6 +317,7 @@ def chat(
     make_extractor: ExtractorFactory,
     make_models: ModelsFactory,
     checkpointer: Checkpointer,
+    make_embedder: EmbedderFactory,
 ) -> StreamingResponse:
     """사용자 메시지를 저장하고 답변을 SSE로 흘려보낸다. 답변은 끝나거나 중지되면 저장한다."""
     with factory() as session:
@@ -335,6 +341,7 @@ def chat(
         make_extractor,
         make_models,
         user.username,
+        make_embedder,
     )
 
 
@@ -362,6 +369,7 @@ def resume_job(
     make_extractor: ExtractorFactory,
     make_models: ModelsFactory,
     checkpointer: Checkpointer,
+    make_embedder: EmbedderFactory,
 ) -> StreamingResponse:
     """되묻기에 답하고 멈춘 곳에서 이어간다. 답은 사용자 메시지로 대화에 남긴다."""
     with factory() as session:
@@ -387,6 +395,7 @@ def resume_job(
         make_extractor,
         make_models,
         user.username,
+        make_embedder,
     )
 
 
