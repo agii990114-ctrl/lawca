@@ -30,17 +30,17 @@ class Settings(BaseSettings):
 
     gemini_api_key: str | None = Field(default=None, validation_alias=AliasChoices("GEMINI_API", "GEMINI_API_KEY"))
     # 별칭(gemini-flash-latest 등)은 가리키는 모델이 바뀌어 평가를 재현할 수 없으므로 버전을 고정한다.
-    # 기본 모델: 요청 분류, 서식 요청 해석, 조회 에이전트. 가볍고 싼 Lite를 쓴다.
+    # 모든 호출에 가볍고 싼 Flash Lite를 쓴다(무료 등급 한도가 넉넉하다).
+    # 기본 모델: 요청 분류, 서식 요청 해석, 조회 에이전트.
     gemini_model: str = Field(default="gemini-3.5-flash-lite", validation_alias="GEMINI_MODEL")
     # 앞 모델이 혼잡(503)하거나 한도(429)에 걸릴 때만 차례로 쓰는 예비 모델(쉼표로 구분). 응답에는 실제로 쓴 모델을 기록한다.
     gemini_fallback_models: str = Field(
-        default="gemini-3.1-flash-lite,gemini-3.7-flash", validation_alias="GEMINI_FALLBACK_MODELS"
+        default="gemini-3.1-flash-lite", validation_alias="GEMINI_FALLBACK_MODELS"
     )
-    # 문서 추출 모델. 기한 계산의 출발점이라 정확도가 가장 중요해 Flash를 따로 둔다.
-    gemini_extraction_model: str = Field(default="gemini-3.7-flash", validation_alias="GEMINI_EXTRACTION_MODEL")
-    # 마지막의 gemini-flash-latest는 별칭이라 최후의 수단으로만 둔다.
+    # 문서 추출 모델. 지금은 기본 모델과 같지만, 정확도가 부족하면 이것만 Flash로 올릴 수 있게 따로 둔다.
+    gemini_extraction_model: str = Field(default="gemini-3.5-flash-lite", validation_alias="GEMINI_EXTRACTION_MODEL")
     gemini_extraction_fallback_models: str = Field(
-        default="gemini-3.5-flash,gemini-flash-latest", validation_alias="GEMINI_EXTRACTION_FALLBACK_MODELS"
+        default="gemini-3.1-flash-lite", validation_alias="GEMINI_EXTRACTION_FALLBACK_MODELS"
     )
     max_upload_mb: int = 20
     # docker-compose.yml의 개발용 PostgreSQL. 운영에서는 DATABASE_URL로 바꾼다.

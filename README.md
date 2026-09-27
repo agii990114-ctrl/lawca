@@ -31,7 +31,7 @@ db/         개발용 DB 초기화 스크립트(docker-compose.yml과 함께)
 레포 루트 `.env`에 LLM 설정을 넣습니다(커밋되지 않습니다). `.env.example`을 복사해 쓰면 됩니다.
 
 - **Ollama(로컬)**: `LLM_PROVIDER=ollama`. 이 PC(또는 법인 서버)에서 모델을 돌려서 문서가 밖으로 나가지 않고 사용량 한도가 없습니다. 기본 모델은 `gemma4:e4b`(`ollama pull gemma4:e4b`)입니다. GPU 드라이버가 맞지 않으면 `OLLAMA_NUM_GPU=0`으로 CPU만 씁니다. CPU만 쓰면 요청 분류 15초, 조회 1분, 문서 추출 1분 반 정도 걸립니다.
-- **Gemini(클라우드)**: `LLM_PROVIDER=gemini`와 `GEMINI_API=발급받은_키`. 요청 분류·서식 해석·조회는 `gemini-3.5-flash-lite`, 문서 추출은 `gemini-3.7-flash`를 씁니다(`.env.example` 참고). 빠르지만 문서가 Google API로 전송되고, 무료 등급은 사용량 한도가 작습니다.
+- **Gemini(클라우드)**: `LLM_PROVIDER=gemini`와 `GEMINI_API=발급받은_키`. 모든 호출(요청 분류·서식 해석·조회·문서 추출)에 `gemini-3.5-flash-lite`를 쓰고, 혼잡하거나 한도에 걸리면 `gemini-3.1-flash-lite`로 넘어갑니다(`.env.example` 참고). 빠르지만 문서가 Google API로 전송되고, 무료 등급은 사용량 한도가 작습니다.
 
 DB(PostgreSQL, Docker)를 띄우고 마이그레이션을 적용합니다. 포트는 5433을 씁니다.
 
