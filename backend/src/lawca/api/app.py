@@ -76,7 +76,7 @@ def get_extractor(settings: Annotated[Settings, Depends(get_settings)]) -> Extra
         return OllamaExtractor(_ollama(settings), settings.ollama_max_image_pages)
     if not settings.gemini_api_key:
         raise HTTPException(503, "Gemini API 키가 설정되지 않았습니다. 레포 루트 .env에 GEMINI_API를 넣으세요.")
-    return GeminiExtractor(settings.gemini_api_key, settings.gemini_models)
+    return GeminiExtractor(settings.gemini_api_key, settings.gemini_extraction_models)
 
 
 def get_extractor_factory(settings: Annotated[Settings, Depends(get_settings)]) -> Callable[[], Extractor]:
@@ -125,6 +125,7 @@ def health(settings: Annotated[Settings, Depends(get_settings)]) -> dict[str, ob
         "status": "ok",
         "provider": settings.llm_provider,
         "models": [settings.ollama_model] if ollama else settings.gemini_models,
+        "extraction_models": [settings.ollama_model] if ollama else settings.gemini_extraction_models,
         "configured": ollama or bool(settings.gemini_api_key),
     }
 
