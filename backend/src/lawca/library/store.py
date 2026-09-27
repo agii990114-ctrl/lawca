@@ -335,3 +335,46 @@ def snippet(text: str, terms: list[str], width: int = 180) -> str:
 def kind_label(kind: str) -> str:
     return KINDS.get(kind, kind)
 
+
+
+def hit_item(hit: Hit, terms: list[str]) -> dict[str, object]:
+    """화면 카드(검색 결과·참고 서면)에 쓰는 한 줄."""
+    return {
+        "doc_id": str(hit.doc.id),
+        "title": hit.doc.title,
+        "kind": hit.doc.kind,
+        "kind_label": kind_label(hit.doc.kind),
+        "status_label": status_label(hit.doc),
+        "snippet": snippet(hit.chunk.text, terms),
+        "page": hit.chunk.page,
+        "file_id": str(hit.doc.file_id),
+        "filename": hit.doc.file.name,
+        "case_number": hit.doc.case.case_number if hit.doc.case else None,
+        "created_at": hit.doc.created_at.date().isoformat(),
+        "matched": sorted(hit.matched),
+    }
+
+
+REFERENCE_KINDS = ("filing", "form", "draft", "other")
+
+
+def references(
+    session: Session,
+    form_name: str,
+    embedder: Embedder | None,
+    *,
+    exclude_draft_id: uuid.UUID | str | None = None,
+    limit: int = 3,
+) -> list[dict[str, object]]:
+    """서식을 쓸 때 참고할 과거 서면. 서식 이름으로 찾고 법원 문서와 지금 만드는 초안은 뺀다.
+
+    최종본·검토 완료 초안·직접 올린 서면이 앞에 온다(검토 전 초안은 점수를 낮춘다).
+    """
+    exclude = str(exclude_draft_id) if exclude_draft_id else None
+    hits = [
+        h
+        for h in search(session, form_name, embedder, limit=12)
+        if h.doc.kind in REFERENCE_KINDS and (exclude is None or str(h.doc.draft_id) != exclude)
+    ]
+    terms = terms_of(form_name)
+    return [hit_item(h, terms) for h in hits[:limit]]

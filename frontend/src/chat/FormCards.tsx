@@ -12,6 +12,7 @@ import {
   type QuestionField,
 } from '../api'
 import { useUser } from '../auth/UserContext'
+import { ReferenceList } from './QueryCards'
 
 export type Answer = (jobId: string, answers: Record<string, string>, summary: string) => Promise<void>
 
@@ -102,6 +103,7 @@ export function QuestionCard({ data, onAnswer }: { data: QuestionCardData; onAns
     <section className={`card question-card${disabled ? ' answered' : ''}`}>
       <h3>{data.title}</h3>
       {data.message && <p className="muted">{data.message}</p>}
+      {data.references && <ReferenceList items={data.references} open={state === 'open'} />}
       {data.errors.map((e) => (
         <p key={e} className="issue error">
           {e}
@@ -210,6 +212,7 @@ export function DraftCard({ data }: { data: DraftCardData }) {
       {data.blanks.length > 0 && (
         <p className="issue warning">빈칸으로 둔 항목: {data.blanks.join(', ')}. 제출 전에 채워야 합니다.</p>
       )}
+      {data.references && <ReferenceList items={data.references} />}
       <dl className="draft-fields">
         {data.fields.map((f) => (
           <div key={f.label}>

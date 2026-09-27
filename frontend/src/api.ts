@@ -99,6 +99,7 @@ export interface QuestionCardData {
   message?: string
   fields: QuestionField[]
   errors: string[]
+  references?: SearchCardItem[]
 }
 
 export interface DraftCardData {
@@ -111,6 +112,7 @@ export interface DraftCardData {
   case_number: string | null
   fields: { label: string; value: string }[]
   blanks: string[]
+  references?: SearchCardItem[]
 }
 
 export const LATER = '__later__'

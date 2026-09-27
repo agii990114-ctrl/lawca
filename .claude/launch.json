@@ -63,6 +63,24 @@
       "env": {
         "LAWCA_API_URL": "http://localhost:8001"
       }
+    },
+    {
+      "name": "backend-alt-ollama",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "--directory",
+        "backend",
+        "run",
+        "uvicorn",
+        "lawca.api.app:app",
+        "--port",
+        "8001"
+      ],
+      "port": 8001,
+      "env": {
+        "LLM_PROVIDER": "ollama",
+        "OLLAMA_NUM_GPU": "0"
+      }
     }
   ]
 }

@@ -146,6 +146,19 @@ def _index(deps: Deps, add: Callable[[Any], Any]) -> None:
         log.exception("자료실 색인 실패")
 
 
+def _references(deps: Deps, draft: dict[str, Any], exclude: str | None = None) -> list[dict[str, Any]]:
+    """같은 서식의 과거 서면을 자료실에서 찾는다. 찾지 못하거나 실패하면 빈 목록(초안 작성은 계속한다)."""
+    form = drafting.load_forms().get(draft.get("form_id") or "")
+    if form is None:
+        return []
+    try:
+        return library_store.references(deps.session, form.name, deps.make_embedder(), exclude_draft_id=exclude)
+    except Exception:  # noqa: BLE001
+        deps.session.rollback()
+        log.exception("참고 서면 검색 실패")
+        return []
+
+
 def _existing_note(session: Session, document_id: str | None, result: DocumentOut) -> str:
     """사건번호로 DB를 찾아, 같은 종류로 이미 진행 중인 기한이 있으면 알린다(새로 확정할 수 없다)."""
     if not document_id or not result.suggestions:
@@ -242,6 +255,9 @@ def draft_ask(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
     question = drafting.build_question(draft, deps.session)
     if question is None:
         return {}
+    if question["stage"] == "fields":
+        # 항목을 채우는 동안 참고할 과거 서면(같은 서식). 되묻는 질문에 함께 싣는다.
+        question = {**question, "references": _references(deps, draft)}
     answers = interrupt(question)
     return {"draft": drafting.apply_answers(draft, question, answers or {}, deps.session, deps.today)}
 
@@ -257,6 +273,7 @@ def draft_render(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
     write({"type": "status", "id": step, "label": "초안 만드는 중", "state": "running"})
     card = drafting.save(state["draft"] or {}, deps.session, deps.job_id)
     _index(deps, lambda embedder: library_store.index_draft(deps.session, card["draft_id"], embedder))
+    card = {**card, "references": _references(deps, state["draft"] or {}, exclude=card["draft_id"])}
     write({"type": "status", "id": step, "label": f"초안 완성: {card['filename']}", "state": "done"})
     note = f" 빈칸으로 둔 항목: {', '.join(card['blanks'])}." if card["blanks"] else ""
     write(

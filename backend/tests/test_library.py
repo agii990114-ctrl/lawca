@@ -234,3 +234,29 @@ def test_case_correction_moves_library_entry(client):  # noqa: F811
     client.patch(f"/api/documents/{document_id}/case", json={"case_number": "2026가단777"})
     assert search(client, "보정", case_number="2026가단777")["hits"]
     assert search(client, "보정", case_number="2026가단51234")["hits"] == []
+
+
+# 서식 작성 때 참고할 과거 서면
+
+
+def test_references_on_question_and_draft_cards(client, two_cases):  # noqa: F811
+    upload_doc(client, "사실조회_예전.docx", docx_bytes("사 실 조 회 신 청 서\n가상카드사에 피고 명의 카드 사용 내역을 조회"), title="예전 사실조회신청서")
+    upload_doc(client, "무관.docx", docx_bytes("항소장\n원판결을 취소한다"), title="항소장")
+
+    # 항목이 빠진 요청 → 되묻는 질문에 참고 서면이 실린다
+    use_models(FakeChatModel(tasks=[("draft", "사실조회")], form_request=("fact_inquiry", "2026가단51234", {})))
+    events = chat(client, new_conversation(client), "사실조회신청서 만들어 줘")
+    question = next(e["card"] for e in events if e["type"] == "card")
+    assert question["kind"] == "question" and question["stage"] == "fields"
+    assert [r["title"] for r in question["references"]] == ["예전 사실조회신청서"]
+
+    # 초안 카드에도 실리고, 방금 만든 초안 자신은 빠진다
+    card = make_draft(client)
+    assert [r["title"] for r in card["references"]] == ["예전 사실조회신청서"]
+    second = make_draft(client)
+    assert all(r["doc_id"] for r in second["references"])
+    assert "사실조회신청서_2026가단51234_초안" not in [r["title"] for r in second["references"]]
+
+
+def test_references_are_empty_without_library(client, two_cases):  # noqa: F811
+    assert make_draft(client)["references"] == []

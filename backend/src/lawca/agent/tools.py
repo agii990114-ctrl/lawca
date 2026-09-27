@@ -266,23 +266,7 @@ def search_library(session: Session, args: dict[str, Any], embedder: Any) -> Too
         session, query, embedder, kind=args.get("kind") or None, case_number=args.get("case_number") or None, limit=6
     )
     terms = library_store.terms_of(query)
-    items = [
-        {
-            "doc_id": str(h.doc.id),
-            "title": h.doc.title,
-            "kind": h.doc.kind,
-            "kind_label": library_store.kind_label(h.doc.kind),
-            "status_label": library_store.status_label(h.doc),
-            "snippet": library_store.snippet(h.chunk.text, terms),
-            "page": h.chunk.page,
-            "file_id": str(h.doc.file_id),
-            "filename": h.doc.file.name,
-            "case_number": h.doc.case.case_number if h.doc.case else None,
-            "created_at": h.doc.created_at.date().isoformat(),
-            "matched": sorted(h.matched),
-        }
-        for h in hits
-    ]
+    items = [library_store.hit_item(h, terms) for h in hits]
     result = {
         "count": len(items),
         "semantic": embedder is not None,

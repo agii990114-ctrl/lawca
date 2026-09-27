@@ -164,3 +164,28 @@ export function SearchCard({ query, items, onShowLibrary }: { query: string; ite
     </section>
   )
 }
+
+// 서식을 쓸 때 참고할 과거 서면(같은 서식). 접었다 펼 수 있다.
+export function ReferenceList({ items, open = false }: { items: SearchCardItem[]; open?: boolean }) {
+  if (items.length === 0) return null
+  return (
+    <details className="references" open={open}>
+      <summary>참고할 과거 서면 {items.length}건 (자료실)</summary>
+      <ul className="search-list">
+        {items.map((item) => (
+          <li key={item.doc_id}>
+            <div className="search-title">
+              <span className={`kind-tag ${item.kind}`}>{item.kind_label}</span>
+              <a href={fileUrl(item.file_id, item.page ?? 1)} target="_blank" rel="noreferrer">
+                {item.title}
+              </a>
+              {item.status_label && <span className="status-tag">{item.status_label}</span>}
+            </div>
+            <p className="search-snippet">{item.snippet}</p>
+            <p className="muted small-note">{[item.case_number, item.created_at].filter(Boolean).join(' · ')}</p>
+          </li>
+        ))}
+      </ul>
+    </details>
+  )
+}

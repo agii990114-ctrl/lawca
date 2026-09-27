@@ -2147,6 +2147,27 @@ button.primary.small {
   font-size: 14px;
 }
 
+/* 참고할 과거 서면 */
+
+.references {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--background);
+}
+
+.references summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.references .search-list {
+  margin-top: 8px;
+}
+
 /* 좁은 화면: 대화 목록은 ☰ 버튼으로 여는 덮개로, 미리보기는 전체 화면으로 연다. 기본 규칙보다 뒤에 둬야 한다. */
 
 @media (max-width: 900px) {
