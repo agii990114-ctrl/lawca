@@ -1,0 +1,118 @@
+{
+  "model": "gemini-3.7-flash",
+  "provider": "gemini",
+  "fields": [
+    "document_type",
+    "court",
+    "case_number",
+    "case_name",
+    "parties",
+    "issued_date",
+    "designated_period"
+  ],
+  "summary": {
+    "documents": 1,
+    "exact_match": 1,
+    "field_accuracy": 1.0,
+    "per_field": {
+      "document_type": {
+        "correct": 1,
+        "total": 1
+      },
+      "court": {
+        "correct": 1,
+        "total": 1
+      },
+      "case_number": {
+        "correct": 1,
+        "total": 1
+      },
+      "case_name": {
+        "correct": 1,
+        "total": 1
+      },
+      "parties": {
+        "correct": 1,
+        "total": 1
+      },
+      "issued_date": {
+        "correct": 1,
+        "total": 1
+      },
+      "designated_period": {
+        "correct": 1,
+        "total": 1
+      }
+    },
+    "failed": 2,
+    "by_variant": {
+      "scan": {
+        "documents": 1,
+        "exact_match": 1,
+        "field_accuracy": 1.0,
+        "per_field": {
+          "document_type": {
+            "correct": 1,
+            "total": 1
+          },
+          "court": {
+            "correct": 1,
+            "total": 1
+          },
+          "case_number": {
+            "correct": 1,
+            "total": 1
+          },
+          "case_name": {
+            "correct": 1,
+            "total": 1
+          },
+          "parties": {
+            "correct": 1,
+            "total": 1
+          },
+          "issued_date": {
+            "correct": 1,
+            "total": 1
+          },
+          "designated_period": {
+            "correct": 1,
+            "total": 1
+          }
+        }
+      }
+    },
+    "seconds": {
+      "total": 13.655866100045387,
+      "mean": 4.551955366681796
+    }
+  },
+  "documents": [
+    {
+      "name": "c01_주소보정_scan",
+      "seconds": 10.729347900021821,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true,
+        "designated_period": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "d01_결정_scan",
+      "seconds": 1.3598684000317007,
+      "error": "ModelUnavailableError: 모든 모델을 쓸 수 없습니다. gemini-3.7-flash 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세요. / gemini-3.5-flash 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세요. / gemini-flash-latest 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세"
+    },
+    {
+      "name": "j01_판결_scan",
+      "seconds": 1.5666497999918647,
+      "error": "ModelUnavailableError: 모든 모델을 쓸 수 없습니다. gemini-3.7-flash 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세요. / gemini-3.5-flash 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세요. / gemini-flash-latest 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세"
+    }
+  ]
+}

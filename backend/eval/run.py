@@ -4,7 +4,7 @@
 
     uv run python eval/run.py                      # Ollama, 전체
     uv run python eval/run.py --only scan --limit 3
-    uv run python eval/run.py --provider gemini --allow-api --limit 4
+    uv run python eval/run.py --provider gemini --allow-api --only scan --pause 30
 
 결과: eval/results/<시각>_<모델>.md 와 .json
 """
@@ -41,8 +41,10 @@ def make_extractor(provider: str):
     return GeminiExtractor(settings.gemini_api_key, models), models[0]
 
 
-def documents(only: str | None, limit: int | None) -> list[Path]:
+def documents(only: str | None, limit: int | None, names: list[str] | None = None) -> list[Path]:
     paths = sorted((ROOT / "documents").glob("*.pdf"))
+    if names:
+        paths = [p for p in paths if any(n in p.stem for n in names)]
     if only:
         paths = [p for p in paths if p.stem.endswith(f"_{only}")]
     return paths[:limit] if limit else paths
@@ -86,15 +88,19 @@ def main() -> None:
     parser.add_argument("--allow-api", action="store_true", help="Gemini API 호출을 허용한다")
     parser.add_argument("--only", choices=["text", "scan"])
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--names", nargs="+", help="이름에 이 글자가 들어간 문서만(예: c01 d01)")
+    parser.add_argument("--pause", type=float, default=0, help="문서 사이 대기(초). API 분당 한도를 피할 때 쓴다")
     args = parser.parse_args()
     if args.provider == "gemini" and not args.allow_api:
         sys.exit("Gemini는 API 사용량을 씁니다. 정말 돌리려면 --allow-api를 함께 주세요.")
 
     extractor, model = make_extractor(args.provider)
-    paths = documents(args.only, args.limit)
+    paths = documents(args.only, args.limit, args.names)
     scores: dict[str, list[DocScore]] = {"text": [], "scan": []}
     rows: list[dict] = []
     for index, path in enumerate(paths, 1):
+        if index > 1 and args.pause:
+            time.sleep(args.pause)
         truth = json.loads((ROOT / "truth" / f"{path.stem}.json").read_text(encoding="utf-8"))
         pdf = path.read_bytes()
         started = time.perf_counter()

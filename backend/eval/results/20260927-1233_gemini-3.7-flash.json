@@ -1,0 +1,153 @@
+{
+  "model": "gemini-3.7-flash",
+  "provider": "gemini",
+  "fields": [
+    "document_type",
+    "court",
+    "case_number",
+    "case_name",
+    "parties",
+    "issued_date",
+    "designated_period"
+  ],
+  "summary": {
+    "documents": 3,
+    "exact_match": 3,
+    "field_accuracy": 1.0,
+    "per_field": {
+      "document_type": {
+        "correct": 3,
+        "total": 3
+      },
+      "court": {
+        "correct": 3,
+        "total": 3
+      },
+      "case_number": {
+        "correct": 3,
+        "total": 3
+      },
+      "case_name": {
+        "correct": 3,
+        "total": 3
+      },
+      "parties": {
+        "correct": 3,
+        "total": 3
+      },
+      "issued_date": {
+        "correct": 3,
+        "total": 3
+      },
+      "designated_period": {
+        "correct": 1,
+        "total": 1
+      }
+    },
+    "failed": 3,
+    "by_variant": {
+      "scan": {
+        "documents": 3,
+        "exact_match": 3,
+        "field_accuracy": 1.0,
+        "per_field": {
+          "document_type": {
+            "correct": 3,
+            "total": 3
+          },
+          "court": {
+            "correct": 3,
+            "total": 3
+          },
+          "case_number": {
+            "correct": 3,
+            "total": 3
+          },
+          "case_name": {
+            "correct": 3,
+            "total": 3
+          },
+          "parties": {
+            "correct": 3,
+            "total": 3
+          },
+          "issued_date": {
+            "correct": 3,
+            "total": 3
+          },
+          "designated_period": {
+            "correct": 1,
+            "total": 1
+          }
+        }
+      }
+    },
+    "seconds": {
+      "total": 66.78648680000333,
+      "mean": 11.131081133333888
+    }
+  },
+  "documents": [
+    {
+      "name": "c01_주소보정_scan",
+      "seconds": 10.5499540999881,
+      "error": "ModelUnavailableError: 모든 모델을 쓸 수 없습니다. gemini-3.7-flash 서버가 응답하지 않습니다(503). 잠시 뒤 다시 시도하세요. / gemini-3.5-flash 서버가 응답하지 않습니다(503). 잠시 뒤 다시 시도하세요. / gemini-flash-latest 서버가 응답하지 않습니다(503). 잠시 뒤 다시 시도하세"
+    },
+    {
+      "name": "c02_인지보정_scan",
+      "seconds": 24.391328700003214,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true,
+        "designated_period": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "d01_결정_scan",
+      "seconds": 5.112584699993022,
+      "error": "ModelUnavailableError: 모든 모델을 쓸 수 없습니다. gemini-3.7-flash 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세요. / gemini-3.5-flash 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세요. / gemini-flash-latest 서버가 응답하지 않습니다(503). 잠시 뒤 다시 시도하세"
+    },
+    {
+      "name": "h01_기일통지서_scan",
+      "seconds": 11.038756599999033,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "j01_판결_scan",
+      "seconds": 0.8328996999771334,
+      "error": "ModelUnavailableError: 모든 모델을 쓸 수 없습니다. gemini-3.7-flash 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세요. / gemini-3.5-flash 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세요. / gemini-flash-latest 사용량 한도를 넘었습니다(429). 잠시 뒤 다시 시도하세"
+    },
+    {
+      "name": "p01_지급명령_scan",
+      "seconds": 14.86096300004283,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true
+      },
+      "mismatches": {},
+      "issues": []
+    }
+  ]
+}
