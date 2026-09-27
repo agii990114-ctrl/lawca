@@ -28,8 +28,16 @@ def docx_text(data: bytes) -> str:
 # 서식 정의와 검증(코드)
 
 
-def test_three_forms_are_defined():
-    assert set(load_forms()) == {"certificate_of_finality", "certificate_of_service", "address_correction"}
+def test_forms_are_defined():
+    assert set(load_forms()) == {"certificate_of_finality", "certificate_of_service", "address_correction",
+                                 "fact_inquiry", "execution_clause"}
+
+
+def test_find_form_by_alias():
+    from lawca.forms import find_form
+    assert find_form("사실조회 신청 좀").id == "fact_inquiry"
+    assert find_form("2026가단51234 집행문 부여 신청서").id == "execution_clause"
+    assert find_form("송달증명원 떼 줘").id == "certificate_of_service"
 
 
 def test_missing_fields_and_conditional_requirement():
@@ -61,6 +69,29 @@ def test_render_fills_template_and_leaves_blanks():
     assert "2026가단51234" in text and "2026. 9. 1. 선고한 판결은 20    .    .    . 확정" in text
     assert "소송대리인" not in text  # 비어 있으면 줄을 뺀다
     assert "서울중앙지방법원  귀중" in text
+
+
+def test_fact_inquiry_renders_multiline_items_and_blank_address():
+    form = load_forms()["fact_inquiry"]
+    values = initial_values(form, CASE, {"applicant": "원고 홍길동"}, date(2026, 9, 27))
+    assert [f.key for f in missing_fields(form, values)] == ["institution", "institution_address", "purpose", "inquiry_items"]
+    values.update(institution="에스케이텔레콤 주식회사", institution_address=LATER,
+                  purpose="피고의 휴대전화 명의", inquiry_items="1. 가입자 성명\n2. 가입자 주소")
+    assert missing_fields(form, values) == []
+    text = docx_text(render(form, values))
+    assert "명칭  에스케이텔레콤 주식회사" in text and "주소  ____________" in text
+    assert "1. 가입자 성명\n2. 가입자 주소" in text  # 줄바꿈이 문서 줄바꿈으로 들어간다
+
+
+def test_execution_clause_fills_parties_from_case():
+    form = load_forms()["execution_clause"]
+    values = initial_values(form, CASE | {"judgment_date": "2026-09-10"}, {"applicant": "원고 홍길동"}, date(2026, 9, 27))
+    assert values["creditor"] == "홍길동" and values["debtor"] == "김철수" and values["title_document"] == "판결"
+    assert missing_fields(form, values) == []
+    assert clean_answer(form.field("title_document"), "지급명령")[1]  # 목록에 없는 집행권원
+    text = docx_text(render(form, values))
+    assert "2026. 9. 10.자 판결 정본에 집행문을 부여하여 주시기 바랍니다." in text
+    assert "채  권  자    홍길동" in text
 
 
 # 채팅으로 서식 만들기
@@ -176,6 +207,17 @@ def test_unknown_form_and_case_are_asked_in_order(client, case_ready):  # noqa: 
     events = events_of(resume(client, q["job_id"], {"applicant": "원고 홍길동"}))
     card = next(e["card"] for e in events if e["type"] == "card" and e["card"]["kind"] == "draft")
     assert dict((f["label"], f["value"]) for f in card["fields"])["송달받은 당사자"] == "김철수"
+
+
+def test_execution_clause_via_chat(client, case_ready):  # noqa: F811
+    _, events = ask_for(client, "2026가단51234 집행문부여 신청서", ("execution_clause", "2026가단51234", {}))
+    q = question_of(events)
+    assert [f["key"] for f in q["fields"]] == ["applicant", "judgment_date"]  # 채권자·채무자는 사건에서 채운다
+    events = events_of(resume(client, q["job_id"], {"applicant": "원고 홍길동", "judgment_date": "2026-09-10"}))
+    card = next(e["card"] for e in events if e["type"] == "card" and e["card"]["kind"] == "draft")
+    assert card["form_name"] == "집행문부여 신청서" and card["blanks"] == []
+    fields = dict((f["label"], f["value"]) for f in card["fields"])
+    assert fields["채권자"] == "홍길동" and fields["채무자"] == "김철수"
 
 
 def test_without_case_all_case_fields_are_asked(client):  # noqa: F811

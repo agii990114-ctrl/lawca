@@ -159,3 +159,85 @@ label = "첨부 서류"
 type = "text"
 required = false
 default = "주민등록초본 1통"
+
+
+[[form]]
+id = "fact_inquiry"
+name = "사실조회신청서"
+template = "fact_inquiry.docx"
+aliases = ["사실조회신청서", "사실조회신청", "사실조회"]
+
+[[form.fields]]
+key = "institution"
+label = "조회할 기관"
+type = "text"
+required = true
+help = "예: 에스케이텔레콤 주식회사"
+
+[[form.fields]]
+key = "institution_address"
+label = "기관 주소"
+type = "textarea"
+required = true
+allow_later = true
+help = "모르면 '나중에 입력'을 고르세요. 초안에 빈칸으로 남깁니다."
+
+[[form.fields]]
+key = "purpose"
+label = "증명하려는 사실"
+type = "textarea"
+required = true
+help = "예: 피고가 2025. 3.경 사용한 휴대전화 번호의 명의자"
+
+[[form.fields]]
+key = "inquiry_items"
+label = "조회할 사항"
+type = "textarea"
+required = true
+help = "한 줄에 하나씩 적습니다. 예: 010-1234-5678 번호의 2025. 3. 1. 당시 가입자 성명과 주소"
+
+
+[[form]]
+id = "execution_clause"
+name = "집행문부여 신청서"
+template = "execution_clause.docx"
+aliases = ["집행문부여신청서", "집행문부여 신청서", "집행문부여", "집행문 부여", "집행문"]
+
+[[form.fields]]
+key = "title_document"
+label = "집행권원"
+type = "select"
+options = ["판결", "화해조서", "조정조서", "화해권고결정", "조정을 갈음하는 결정"]
+required = true
+default = "판결"
+help = "지급명령·이행권고결정은 원칙적으로 집행문 없이 집행할 수 있습니다."
+
+[[form.fields]]
+key = "judgment_date"
+label = "집행권원 선고일(성립일)"
+type = "date"
+required = true
+from_case = "judgment_date"
+remember = true
+
+[[form.fields]]
+key = "creditor"
+label = "채권자"
+type = "text"
+required = true
+from_case = "plaintiffs"
+help = "집행할 권리가 있는 쪽. 피고가 이긴 소송비용 등이라면 피고를 적습니다."
+
+[[form.fields]]
+key = "debtor"
+label = "채무자"
+type = "text"
+required = true
+from_case = "defendants"
+
+[[form.fields]]
+key = "copies"
+label = "신청 통수"
+type = "number"
+required = true
+default = "1"

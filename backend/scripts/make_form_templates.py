@@ -97,12 +97,42 @@ def address_correction() -> Document:
     return doc
 
 
+def fact_inquiry() -> Document:
+    doc = new_document("사실조회신청서")
+    case_block(doc)
+    line(doc, "위 사건에 관하여 신청인은 주장사실을 증명하기 위하여 다음과 같이 사실조회를 신청합니다.")
+    doc.add_paragraph()
+    line(doc, "1. 사실조회 기관의 명칭과 주소")
+    line(doc, "    명칭  {{ institution }}")
+    line(doc, "    주소  {{ institution_address }}")
+    line(doc, "2. 증명하려는 사실")
+    line(doc, "    {{ purpose }}")
+    line(doc, "3. 사실조회 사항")
+    line(doc, "    {{ inquiry_items }}")
+    signature(doc)
+    return doc
+
+
+def execution_clause() -> Document:
+    doc = new_document("집행문부여신청")
+    case_block(doc)
+    line(doc, "채  권  자    {{ creditor }}")
+    line(doc, "채  무  자    {{ debtor }}")
+    doc.add_paragraph()
+    line(doc, "위 사건에 관하여 {{ judgment_date }}자 {{ title_document }} 정본에 집행문을 부여하여 주시기 바랍니다.")
+    line(doc, "신청 통수  {{ copies }}통")
+    signature(doc)
+    return doc
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for name, build in [
         ("certificate_of_finality", certificate_of_finality),
         ("certificate_of_service", certificate_of_service),
         ("address_correction", address_correction),
+        ("fact_inquiry", fact_inquiry),
+        ("execution_clause", execution_clause),
     ]:
         path = OUT / f"{name}.docx"
         build().save(path)
