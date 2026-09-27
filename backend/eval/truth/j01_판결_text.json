@@ -1,0 +1,20 @@
+{
+  "source": "synthetic",
+  "variant": "text",
+  "document_type": "판결",
+  "court": "서울중앙지방법원",
+  "case_number": "2025가단287716",
+  "case_name": "임대차보증금",
+  "parties": [
+    [
+      "원고",
+      "정수진"
+    ],
+    [
+      "피고",
+      "최동욱"
+    ]
+  ],
+  "issued_date": "2026-09-10",
+  "designated_period": null
+}

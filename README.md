@@ -75,6 +75,16 @@ compute_designated_deadline(date(2026, 9, 1), Period(7, Unit.DAY)).deadline  # �
 - 서식 문구는 공개 양식의 일반적인 구성을 참고했으며 공식 양식과 한 글자씩 대조하지 않았습니다. 제출 전에 전자소송 양식과 비교합니다.
 - 되묻기로 멈춘 작업은 PostgreSQL 체크포인터(LangGraph)로 저장되어 서버를 다시 띄워도 이어갈 수 있습니다.
 
+### 추출 평가 (`backend/eval`)
+
+- `eval/make_documents.py`: 가상 사건으로 합성 법원 문서 16건(텍스트 PDF 10, 스캔본 6)과 정답 JSON을 만듭니다. 판결의 변론종결일·선고일, 기일통지서의 작성일·기일처럼 헷갈리기 쉬운 날짜를 함께 넣었습니다.
+- `eval/run.py`: 추출 결과를 정답과 항목별로 비교해 `eval/results/`에 보고서(md·json)를 씁니다. 기본은 로컬 Ollama이고, Gemini는 `--provider gemini --allow-api`를 줘야 돌아갑니다.
+- 합성 문서는 실제 법원 문서보다 깨끗하므로 수치는 실제 정확도의 상한으로 봅니다.
+
+```bash
+cd backend && uv run python eval/run.py --only scan --limit 3
+```
+
 ## 기술 스택(계획)
 
 Python · FastAPI · LangGraph · Gemini Flash · PostgreSQL(pgvector) · React

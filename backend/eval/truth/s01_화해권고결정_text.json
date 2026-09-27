@@ -1,0 +1,22 @@
+{
+  "source": "synthetic",
+  "variant": "text",
+  "document_type": "화해권고결정",
+  "court": "인천지방법원",
+  "case_number": "2026가소7781",
+  "case_name": "손해배상(자)",
+  "parties": [
+    [
+      "원고",
+      "한지훈"
+    ],
+    [
+      "피고",
+      "송미라"
+    ]
+  ],
+  "issued_date": "2026-09-11",
+  "skip": [
+    "designated_period"
+  ]
+}

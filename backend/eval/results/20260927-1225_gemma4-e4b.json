@@ -1,0 +1,626 @@
+{
+  "model": "gemma4:e4b",
+  "provider": "ollama",
+  "fields": [
+    "document_type",
+    "court",
+    "case_number",
+    "case_name",
+    "parties",
+    "issued_date",
+    "designated_period"
+  ],
+  "summary": {
+    "documents": 16,
+    "exact_match": 10,
+    "field_accuracy": 0.638095238095238,
+    "per_field": {
+      "document_type": {
+        "correct": 10,
+        "total": 16
+      },
+      "court": {
+        "correct": 10,
+        "total": 16
+      },
+      "case_number": {
+        "correct": 10,
+        "total": 16
+      },
+      "case_name": {
+        "correct": 10,
+        "total": 16
+      },
+      "parties": {
+        "correct": 10,
+        "total": 16
+      },
+      "issued_date": {
+        "correct": 10,
+        "total": 16
+      },
+      "designated_period": {
+        "correct": 7,
+        "total": 9
+      }
+    },
+    "failed": 0,
+    "by_variant": {
+      "text": {
+        "documents": 10,
+        "exact_match": 10,
+        "field_accuracy": 1.0,
+        "per_field": {
+          "document_type": {
+            "correct": 10,
+            "total": 10
+          },
+          "court": {
+            "correct": 10,
+            "total": 10
+          },
+          "case_number": {
+            "correct": 10,
+            "total": 10
+          },
+          "case_name": {
+            "correct": 10,
+            "total": 10
+          },
+          "parties": {
+            "correct": 10,
+            "total": 10
+          },
+          "issued_date": {
+            "correct": 10,
+            "total": 10
+          },
+          "designated_period": {
+            "correct": 6,
+            "total": 6
+          }
+        }
+      },
+      "scan": {
+        "documents": 6,
+        "exact_match": 0,
+        "field_accuracy": 0.02564102564102564,
+        "per_field": {
+          "document_type": {
+            "correct": 0,
+            "total": 6
+          },
+          "court": {
+            "correct": 0,
+            "total": 6
+          },
+          "case_number": {
+            "correct": 0,
+            "total": 6
+          },
+          "case_name": {
+            "correct": 0,
+            "total": 6
+          },
+          "parties": {
+            "correct": 0,
+            "total": 6
+          },
+          "issued_date": {
+            "correct": 0,
+            "total": 6
+          },
+          "designated_period": {
+            "correct": 1,
+            "total": 3
+          }
+        }
+      }
+    },
+    "seconds": {
+      "total": 1298.1950462000677,
+      "mean": 81.13719038750423
+    }
+  },
+  "documents": [
+    {
+      "name": "c01_주소보정_scan",
+      "seconds": 105.96910589997424,
+      "exact": false,
+      "results": {
+        "document_type": false,
+        "court": false,
+        "case_number": false,
+        "case_name": false,
+        "parties": false,
+        "issued_date": false,
+        "designated_period": false
+      },
+      "mismatches": {
+        "document_type": [
+          "보정명령",
+          "기타"
+        ],
+        "court": [
+          "서울중앙지방법원",
+          null
+        ],
+        "case_number": [
+          "2026가단51234",
+          null
+        ],
+        "case_name": [
+          "대여금",
+          null
+        ],
+        "parties": [
+          [
+            [
+              "원고",
+              "홍길동"
+            ],
+            [
+              "피고",
+              "김철수"
+            ]
+          ],
+          [
+            [
+              "null",
+              "null"
+            ]
+          ]
+        ],
+        "issued_date": [
+          "2026-09-15",
+          null
+        ],
+        "designated_period": [
+          [
+            7,
+            "일"
+          ],
+          null
+        ]
+      },
+      "issues": []
+    },
+    {
+      "name": "c01_주소보정_text",
+      "seconds": 89.75561930000549,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true,
+        "designated_period": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "c02_인지보정_scan",
+      "seconds": 97.5217845000443,
+      "exact": false,
+      "results": {
+        "document_type": false,
+        "court": false,
+        "case_number": false,
+        "case_name": false,
+        "parties": false,
+        "issued_date": false,
+        "designated_period": false
+      },
+      "mismatches": {
+        "document_type": [
+          "보정명령",
+          "기타"
+        ],
+        "court": [
+          "수원지방법원",
+          null
+        ],
+        "case_number": [
+          "2026가소30217",
+          null
+        ],
+        "case_name": [
+          "손해배상(기)",
+          null
+        ],
+        "parties": [
+          [
+            [
+              "원고",
+              "이영희"
+            ],
+            [
+              "피고",
+              "주식회사한빛물산"
+            ]
+          ],
+          [
+            [
+              "null",
+              "null"
+            ]
+          ]
+        ],
+        "issued_date": [
+          "2026-08-28",
+          null
+        ],
+        "designated_period": [
+          [
+            7,
+            "일"
+          ],
+          null
+        ]
+      },
+      "issues": []
+    },
+    {
+      "name": "c02_인지보정_text",
+      "seconds": 111.75257349997992,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true,
+        "designated_period": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "c03_청구취지보정_text",
+      "seconds": 76.99928129999898,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true,
+        "designated_period": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "c04_피고2명_text",
+      "seconds": 84.14077619998716,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true,
+        "designated_period": true
+      },
+      "mismatches": {},
+      "issues": [
+        "error:parties[2]:근거 문구를 원문에서 찾지 못했습니다: “피고 2. 백은서”"
+      ]
+    },
+    {
+      "name": "d01_결정_scan",
+      "seconds": 70.92588310001884,
+      "exact": false,
+      "results": {
+        "document_type": false,
+        "court": false,
+        "case_number": false,
+        "case_name": false,
+        "parties": false,
+        "issued_date": false
+      },
+      "mismatches": {
+        "document_type": [
+          "결정",
+          "기타"
+        ],
+        "court": [
+          "서울동부지방법원",
+          null
+        ],
+        "case_number": [
+          "2026카확512",
+          null
+        ],
+        "case_name": [
+          "소송비용액확정",
+          null
+        ],
+        "parties": [
+          [
+            [
+              "신청인",
+              "배서준"
+            ],
+            [
+              "피신청인",
+              "임다현"
+            ]
+          ],
+          [
+            [
+              "null",
+              "null"
+            ]
+          ]
+        ],
+        "issued_date": [
+          "2026-09-04",
+          null
+        ]
+      },
+      "issues": []
+    },
+    {
+      "name": "d01_결정_text",
+      "seconds": 69.99842399999034,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "h01_기일통지서_scan",
+      "seconds": 70.00951919995714,
+      "exact": false,
+      "results": {
+        "document_type": false,
+        "court": false,
+        "case_number": false,
+        "case_name": false,
+        "parties": false,
+        "issued_date": false
+      },
+      "mismatches": {
+        "document_type": [
+          "기일통지서",
+          "기타"
+        ],
+        "court": [
+          "서울남부지방법원",
+          null
+        ],
+        "case_number": [
+          "2026가단9921",
+          null
+        ],
+        "case_name": [
+          "부당이득금",
+          null
+        ],
+        "parties": [
+          [
+            [
+              "원고",
+              "오세영"
+            ],
+            [
+              "피고",
+              "윤태호"
+            ]
+          ],
+          [
+            [
+              "null",
+              "null"
+            ]
+          ]
+        ],
+        "issued_date": [
+          "2026-09-01",
+          null
+        ]
+      },
+      "issues": []
+    },
+    {
+      "name": "h01_기일통지서_text",
+      "seconds": 64.6892583000008,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "j01_판결_scan",
+      "seconds": 71.47051370004192,
+      "exact": false,
+      "results": {
+        "document_type": false,
+        "court": false,
+        "case_number": false,
+        "case_name": false,
+        "parties": false,
+        "issued_date": false,
+        "designated_period": true
+      },
+      "mismatches": {
+        "document_type": [
+          "판결",
+          "기타"
+        ],
+        "court": [
+          "서울중앙지방법원",
+          null
+        ],
+        "case_number": [
+          "2025가단287716",
+          null
+        ],
+        "case_name": [
+          "임대차보증금",
+          null
+        ],
+        "parties": [
+          [
+            [
+              "원고",
+              "정수진"
+            ],
+            [
+              "피고",
+              "최동욱"
+            ]
+          ],
+          [
+            [
+              "null",
+              "null"
+            ]
+          ]
+        ],
+        "issued_date": [
+          "2026-09-10",
+          null
+        ]
+      },
+      "issues": []
+    },
+    {
+      "name": "j01_판결_text",
+      "seconds": 82.81801770004677,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true,
+        "designated_period": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "j02_판결_2쪽_text",
+      "seconds": 71.45327050000196,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true,
+        "designated_period": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "p01_지급명령_scan",
+      "seconds": 70.15655180002796,
+      "exact": false,
+      "results": {
+        "document_type": false,
+        "court": false,
+        "case_number": false,
+        "case_name": false,
+        "parties": false,
+        "issued_date": false
+      },
+      "mismatches": {
+        "document_type": [
+          "지급명령",
+          "기타"
+        ],
+        "court": [
+          "서울중앙지방법원",
+          null
+        ],
+        "case_number": [
+          "2026차전115203",
+          null
+        ],
+        "case_name": [
+          "양수금",
+          null
+        ],
+        "parties": [
+          [
+            [
+              "채권자",
+              "주식회사가온캐피탈"
+            ],
+            [
+              "채무자",
+              "신유나"
+            ]
+          ],
+          [
+            [
+              "null",
+              "null"
+            ]
+          ]
+        ],
+        "issued_date": [
+          "2026-09-08",
+          null
+        ]
+      },
+      "issues": []
+    },
+    {
+      "name": "p01_지급명령_text",
+      "seconds": 77.74709329998586,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true
+      },
+      "mismatches": {},
+      "issues": []
+    },
+    {
+      "name": "s01_화해권고결정_text",
+      "seconds": 82.78737390000606,
+      "exact": true,
+      "results": {
+        "document_type": true,
+        "court": true,
+        "case_number": true,
+        "case_name": true,
+        "parties": true,
+        "issued_date": true
+      },
+      "mismatches": {},
+      "issues": []
+    }
+  ]
+}

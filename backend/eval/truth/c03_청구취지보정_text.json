@@ -1,0 +1,23 @@
+{
+  "source": "synthetic",
+  "variant": "text",
+  "document_type": "보정명령",
+  "court": "부산지방법원 동부지원",
+  "case_number": "2026가합1052",
+  "case_name": "공사대금",
+  "parties": [
+    [
+      "원고",
+      "주식회사 대성토건"
+    ],
+    [
+      "피고",
+      "박민수"
+    ]
+  ],
+  "issued_date": "2026-09-02",
+  "designated_period": [
+    14,
+    "일"
+  ]
+}

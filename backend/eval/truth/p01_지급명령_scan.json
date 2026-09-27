@@ -1,0 +1,22 @@
+{
+  "source": "synthetic",
+  "variant": "scan",
+  "document_type": "지급명령",
+  "court": "서울중앙지방법원",
+  "case_number": "2026차전115203",
+  "case_name": "양수금",
+  "parties": [
+    [
+      "채권자",
+      "주식회사 가온캐피탈"
+    ],
+    [
+      "채무자",
+      "신유나"
+    ]
+  ],
+  "issued_date": "2026-09-08",
+  "skip": [
+    "designated_period"
+  ]
+}

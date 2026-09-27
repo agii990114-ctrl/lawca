@@ -1,0 +1,20 @@
+{
+  "source": "synthetic",
+  "variant": "text",
+  "document_type": "판결",
+  "court": "광주지방법원",
+  "case_number": "2026가합20418",
+  "case_name": "손해배상(기)",
+  "parties": [
+    [
+      "원고",
+      "주식회사 새벽유통"
+    ],
+    [
+      "피고",
+      "유재민"
+    ]
+  ],
+  "issued_date": "2026-09-17",
+  "designated_period": null
+}

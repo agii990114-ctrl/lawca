@@ -1,0 +1,22 @@
+{
+  "source": "synthetic",
+  "variant": "scan",
+  "document_type": "기일통지서",
+  "court": "서울남부지방법원",
+  "case_number": "2026가단9921",
+  "case_name": "부당이득금",
+  "parties": [
+    [
+      "원고",
+      "오세영"
+    ],
+    [
+      "피고",
+      "윤태호"
+    ]
+  ],
+  "issued_date": "2026-09-01",
+  "skip": [
+    "designated_period"
+  ]
+}

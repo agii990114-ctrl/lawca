@@ -1,0 +1,22 @@
+{
+  "source": "synthetic",
+  "variant": "scan",
+  "document_type": "결정",
+  "court": "서울동부지방법원",
+  "case_number": "2026카확512",
+  "case_name": "소송비용액확정",
+  "parties": [
+    [
+      "신청인",
+      "배서준"
+    ],
+    [
+      "피신청인",
+      "임다현"
+    ]
+  ],
+  "issued_date": "2026-09-04",
+  "skip": [
+    "designated_period"
+  ]
+}

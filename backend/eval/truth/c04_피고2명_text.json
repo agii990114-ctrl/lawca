@@ -1,0 +1,27 @@
+{
+  "source": "synthetic",
+  "variant": "text",
+  "document_type": "보정명령",
+  "court": "대구지방법원 서부지원",
+  "case_number": "2026가단3345",
+  "case_name": "구상금",
+  "parties": [
+    [
+      "원고",
+      "주식회사 다온보증"
+    ],
+    [
+      "피고",
+      "문성진"
+    ],
+    [
+      "피고",
+      "백은서"
+    ]
+  ],
+  "issued_date": "2026-09-18",
+  "designated_period": [
+    10,
+    "일"
+  ]
+}
