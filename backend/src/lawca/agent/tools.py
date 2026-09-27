@@ -272,6 +272,7 @@ def search_library(session: Session, args: dict[str, Any], embedder: Any) -> Too
             "title": h.doc.title,
             "kind": h.doc.kind,
             "kind_label": library_store.kind_label(h.doc.kind),
+            "status_label": library_store.status_label(h.doc),
             "snippet": library_store.snippet(h.chunk.text, terms),
             "page": h.chunk.page,
             "file_id": str(h.doc.file_id),

@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Computed,
     Date,
     DateTime,
     ForeignKey,
@@ -306,8 +307,13 @@ class Draft(Timestamped, Base):
     reviewed_by: Mapped[str | None] = mapped_column(String(50))
     """검토를 마친 변호사의 아이디. 비어 있으면 검토 전이다."""
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    final_file_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("files.id"))
+    """사람이 고쳐 실제로 낸 최종본. 있으면 자료실에는 초안 대신 이것이 들어간다."""
+    final_uploaded_by: Mapped[str | None] = mapped_column(String(50))
+    final_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    file: Mapped[File] = relationship()
+    file: Mapped[File] = relationship(foreign_keys=[file_id])
+    final_file: Mapped[File | None] = relationship(foreign_keys=[final_file_id])
     case: Mapped[Case | None] = relationship()
 
 
@@ -346,6 +352,7 @@ class LibraryDoc(Timestamped, Base):
 
     file: Mapped[File] = relationship()
     case: Mapped[Case | None] = relationship()
+    draft: Mapped[Draft | None] = relationship()
     chunks: Mapped[list[LibraryChunk]] = relationship(
         back_populates="doc", order_by="LibraryChunk.seq", cascade="all, delete-orphan"
     )
@@ -356,7 +363,9 @@ class LibraryChunk(Base):
 
     __tablename__ = "library_chunks"
     __table_args__ = (
-        Index("ix_library_chunks_text_trgm", "text", postgresql_using="gin", postgresql_ops={"text": "gin_trgm_ops"}),
+        Index(
+            "ix_library_chunks_compact_trgm", "compact", postgresql_using="gin", postgresql_ops={"compact": "gin_trgm_ops"}
+        ),
         Index(
             "ix_library_chunks_embedding",
             "embedding",
@@ -370,6 +379,8 @@ class LibraryChunk(Base):
     seq: Mapped[int] = mapped_column(Integer)
     page: Mapped[int | None] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
+    compact: Mapped[str] = mapped_column(Text, Computed(r"regexp_replace(text, '\s+', '', 'g')", persisted=True))
+    """공백을 뺀 글. "사 실 조 회"처럼 띄어 쓴 제목도 "사실조회"로 찾히게 키워드 검색은 이것으로 한다."""
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
 
     doc: Mapped[LibraryDoc] = relationship(back_populates="chunks")

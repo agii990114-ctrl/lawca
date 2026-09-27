@@ -2119,6 +2119,34 @@ button.primary.small {
   min-width: 200px;
 }
 
+/* 초안 최종본 */
+
+.review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.file-button {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.file-button:hover {
+  background: var(--background);
+}
+
+.final-line {
+  margin: 8px 0 0;
+  font-size: 14px;
+}
+
 /* 좁은 화면: 대화 목록은 ☰ 버튼으로 여는 덮개로, 미리보기는 전체 화면으로 연다. 기본 규칙보다 뒤에 둬야 한다. */
 
 @media (max-width: 900px) {

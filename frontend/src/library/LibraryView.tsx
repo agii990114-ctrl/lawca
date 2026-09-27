@@ -180,6 +180,7 @@ export default function LibraryView() {
                     <a href={fileUrl(h.doc.file_id, h.page ?? 1)} target="_blank" rel="noreferrer">
                       {h.doc.title}
                     </a>
+                    {h.doc.status_label && <span className="status-tag">{h.doc.status_label}</span>}
                   </div>
                   <p className="search-snippet">
                     <Highlight text={h.snippet} query={result.query} />
@@ -233,6 +234,7 @@ export default function LibraryView() {
                     </td>
                     <td>
                       <span className={`kind-tag ${d.kind}`}>{d.kind_label}</span>
+                      {d.status_label && <div className="muted small-note">{d.status_label}</div>}
                     </td>
                     <td>{d.case_number ?? '—'}</td>
                     <td>{d.created_by}</td>

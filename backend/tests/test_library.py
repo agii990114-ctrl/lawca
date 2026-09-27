@@ -15,7 +15,8 @@ from tests.conftest import login, make_user
 from tests.fakes import FakeChatModel, FakeEmbedder
 from tests.test_agent import use_models
 from tests.test_api import FakeExtractor, chat, client, new_conversation  # noqa: F401 (픽스처 재사용)
-from tests.test_extraction import correction_order
+from lawca.extraction.schema import Party
+from tests.test_extraction import correction_order, ev
 
 FIXTURE = Path(__file__).parent / "fixtures" / "synthetic_correction_order.pdf"
 
@@ -160,3 +161,76 @@ def test_chat_search_tool_returns_search_card(client):  # noqa: F811
     card = next(e["card"] for e in events if e["type"] == "card")
     assert card["kind"] == "search" and card["items"][0]["title"] == "공시송달 신청(말소)"
     assert any(e["type"] == "status" and e["label"].startswith("자료실 검색") for e in events)
+
+
+# 초안·최종본과 제목 검색
+
+
+@pytest.fixture
+def two_cases(client):  # noqa: F811
+    """보정명령을 처리해 2026가단51234 사건을 만든다(서식 초안의 사건)."""
+    parties = [Party(role="원고", name="홍길동", evidence=ev("원 고 홍길동")), Party(role="피고", name="김철수", evidence=ev("피 고 김철수"))]
+    app.dependency_overrides[get_extractor_factory] = lambda: (lambda: FakeExtractor(correction_order(parties=parties)))
+    file_id = client.post("/api/files", files={"file": ("order.pdf", b"%PDF-1.4 fake", "application/pdf")}).json()["id"]
+    chat(client, new_conversation(client), file_ids=[file_id])
+
+
+def make_draft(client, form_id="fact_inquiry"):  # noqa: F811
+    values = {"applicant": "원고 홍길동", "institution": "가상은행", "institution_address": "서울",
+              "purpose": "피고의 계좌 명의", "inquiry_items": "1. 계좌 명의인"}
+    use_models(FakeChatModel(tasks=[("draft", "사실조회")], form_request=(form_id, "2026가단51234", values)))
+    events = chat(client, new_conversation(client), "사실조회신청서 만들어 줘")
+    cards = [e["card"] for e in events if e["type"] == "card"]
+    assert cards and cards[-1]["kind"] == "draft", [(c["kind"], [f["key"] for f in c.get("fields", [])]) for c in cards]
+    return cards[-1]
+
+
+def test_spaced_title_is_found_by_compact_word(client, two_cases):  # noqa: F811
+    make_draft(client)
+    # 초안 첫 줄은 "사 실 조 회 신 청 서"로 띄어 쓰여 있다
+    hits = search(client, "사실조회신청서")["hits"]
+    assert hits and hits[0]["doc"]["title"] == "사실조회신청서_2026가단51234_초안"
+    assert hits[0]["doc"]["status_label"] == "검토 전 초안"
+
+
+def test_only_latest_draft_per_case_and_form(client, two_cases):  # noqa: F811
+    first = make_draft(client)
+    second = make_draft(client)
+    drafts = client.get("/api/library", params={"kind": "draft"}).json()
+    assert len(drafts) == 1 and first["draft_id"] != second["draft_id"]
+
+
+def test_final_version_replaces_draft(client, two_cases):  # noqa: F811
+    card = make_draft(client)
+    final = docx_bytes("사실조회신청서 최종본\n가상은행에 피고 명의 계좌의 개설일과 잔액을 조회합니다.")
+    assert client.post(f"/api/drafts/{card['draft_id']}/final", files={"file": ("최종.txt", b"x")}).status_code == 415
+    res = client.post(f"/api/drafts/{card['draft_id']}/final", files={"file": ("사실조회_최종.docx", final)})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["final_filename"] == "사실조회_최종.docx" and body["final_uploaded_by"] == "clerk1"
+    docs = client.get("/api/library").json()
+    assert [(d["kind"], d["title"], d["status_label"]) for d in docs if d["case_number"]] == [
+        ("filing", "사실조회신청서_2026가단51234_최종본", "최종본")
+    ]
+    assert search(client, "개설일과 잔액")["hits"][0]["doc"]["status_label"] == "최종본"
+    # 초안을 다시 만들어도 최종본은 남는다
+    make_draft(client)
+    kinds = sorted(d["kind"] for d in client.get("/api/library").json() if d["case_number"])
+    assert kinds == ["draft", "filing"]
+
+
+def test_unreviewed_draft_ranks_below_uploaded_filing(client, two_cases):  # noqa: F811
+    make_draft(client)
+    upload_doc(client, "사실조회신청서_예전.docx", docx_bytes("사 실 조 회 신 청 서\n가상은행 계좌 명의 조회"), title="예전 사실조회신청서")
+    titles = [h["doc"]["title"] for h in search(client, "사실조회신청서")["hits"]]
+    assert titles[0] == "예전 사실조회신청서"
+
+
+def test_case_correction_moves_library_entry(client):  # noqa: F811
+    app.dependency_overrides[get_extractor_factory] = lambda: (lambda: FakeExtractor(correction_order()))
+    file_id = client.post("/api/files", files={"file": ("보정명령.pdf", FIXTURE.read_bytes(), "application/pdf")}).json()["id"]
+    events = chat(client, new_conversation(client), file_ids=[file_id])
+    document_id = next(e["card"] for e in events if e["type"] == "card")["document_id"]
+    client.patch(f"/api/documents/{document_id}/case", json={"case_number": "2026가단777"})
+    assert search(client, "보정", case_number="2026가단777")["hits"]
+    assert search(client, "보정", case_number="2026가단51234")["hits"] == []

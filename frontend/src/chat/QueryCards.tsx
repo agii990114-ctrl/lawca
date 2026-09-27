@@ -150,6 +150,7 @@ export function SearchCard({ query, items, onShowLibrary }: { query: string; ite
                 <a href={fileUrl(item.file_id, item.page ?? 1)} target="_blank" rel="noreferrer">
                   {item.title}
                 </a>
+                {item.status_label && <span className="status-tag">{item.status_label}</span>}
               </div>
               <p className="search-snippet">{item.snippet}</p>
               <p className="muted small-note">

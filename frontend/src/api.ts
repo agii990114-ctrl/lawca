@@ -129,6 +129,7 @@ export interface SearchCardItem {
   title: string
   kind: LibraryKind
   kind_label: string
+  status_label: string | null
   snippet: string
   page: number | null
   file_id: string
@@ -330,6 +331,16 @@ export interface DraftStatus {
   created_by: string | null
   reviewed_by: string | null
   reviewed_at: string | null
+  final_file_id: string | null
+  final_filename: string | null
+  final_uploaded_by: string | null
+  final_uploaded_at: string | null
+}
+
+export function uploadFinal(draftId: string, file: File) {
+  const body = new FormData()
+  body.append('file', file)
+  return getJson<DraftStatus>(`/api/drafts/${draftId}/final`, { method: 'POST', body })
 }
 
 export const getDraft = (id: string) => getJson<DraftStatus>(`/api/drafts/${id}`)
@@ -597,6 +608,7 @@ export interface LibraryDoc {
   chunk_count: number
   embedded: boolean
   can_delete: boolean
+  status_label: string | null
 }
 
 export interface LibrarySearch {

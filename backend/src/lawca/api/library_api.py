@@ -34,6 +34,8 @@ class LibraryDocOut(BaseModel):
     chunk_count: int
     embedded: bool
     can_delete: bool
+    status_label: str | None
+    """초안·최종본의 상태: 최종본 | 검토 완료 초안 | 검토 전 초안"""
 
 
 class SearchHitOut(BaseModel):
@@ -70,6 +72,7 @@ def doc_out(doc: LibraryDoc, user: User) -> LibraryDocOut:
         chunk_count=doc.chunk_count,
         embedded=doc.embedded,
         can_delete=can_delete(doc, user),
+        status_label=store.status_label(doc),
     )
 
 

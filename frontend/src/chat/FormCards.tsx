@@ -5,6 +5,7 @@ import {
   getJob,
   LATER,
   reviewDraft,
+  uploadFinal,
   type DraftCardData,
   type DraftStatus,
   type QuestionCardData,
@@ -162,6 +163,21 @@ export function DraftCard({ data }: { data: DraftCardData }) {
       .catch(() => setStatus(null))
   }, [data.draft_id])
 
+  const [uploading, setUploading] = useState(false)
+
+  // 워드에서 고쳐 실제로 낸 최종본을 올린다. 자료실에는 초안 대신 최종본이 들어간다.
+  async function upload(file: File) {
+    setError(null)
+    setUploading(true)
+    try {
+      setStatus(await uploadFinal(data.draft_id, file))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setUploading(false)
+    }
+  }
+
   async function review() {
     setError(null)
     try {
@@ -202,12 +218,37 @@ export function DraftCard({ data }: { data: DraftCardData }) {
           </div>
         ))}
       </dl>
+      {status?.final_file_id && (
+        <p className="final-line">
+          최종본:{' '}
+          <a href={downloadUrl(status.final_file_id)} download={status.final_filename ?? undefined}>
+            {status.final_filename}
+          </a>
+          <span className="muted"> · {status.final_uploaded_by} 올림 · 자료실에는 초안 대신 최종본이 들어갑니다</span>
+        </p>
+      )}
       {error && <p className="issue error">{error}</p>}
-      {isLawyer && status && !reviewed && (
+      {status && (
         <div className="review-actions">
-          <button type="button" className="secondary small" onClick={review}>
-            검토 완료로 표시
-          </button>
+          {isLawyer && !reviewed && (
+            <button type="button" className="secondary small" onClick={review}>
+              검토 완료로 표시
+            </button>
+          )}
+          <label className="secondary small file-button">
+            {uploading ? '올리는 중…' : status.final_file_id ? '최종본 다시 올리기' : '최종본 올리기'}
+            <input
+              type="file"
+              accept=".docx,.pdf"
+              hidden
+              disabled={uploading}
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) upload(file)
+              }}
+            />
+          </label>
         </div>
       )}
       <p className="card-foot">

@@ -1,9 +1,13 @@
 """자료실 저장과 검색. 커밋은 호출하는 쪽이 한다.
 
 검색은 두 가지를 섞는다(Reciprocal Rank Fusion).
-- 키워드: 검색어 낱말이 조각에 들어 있는지(ILIKE)와 트라이그램 유사도. 사건번호·서식 이름처럼 정확히 맞아야 하는 것.
-- 의미: bge-m3 임베딩의 코사인 거리. "주소를 모를 때 쓰는 서면"처럼 표현이 달라도 비슷한 내용.
+- 키워드: 검색어 낱말이 조각이나 제목에 들어 있는지와 트라이그램 유사도. 사건번호·서식 이름처럼 정확히 맞아야 하는 것.
+  공백을 뺀 글로 비교해 "사 실 조 회 신 청 서"처럼 띄어 쓴 제목도 "사실조회신청서"로 찾힌다.
+- 의미: bge-m3 임베딩의 코사인 거리. "주소를 모를 때 쓰는 서면"처럼 표현이 달라도 비슷한 내용. 제목을 붙여 임베딩한다.
 한 문서에서 가장 잘 맞는 조각 하나를 대표로 보여 준다.
+
+초안은 사건·서식마다 가장 최근 것만 둔다. 사람이 고쳐 낸 최종본을 올리면 그 초안 대신 최종본이 들어간다.
+검토 전 초안은 검색 순위를 조금 낮춘다(검토를 마친 초안과 최종본, 직접 올린 서면을 먼저 보여 준다).
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ CANDIDATES = 40
 MIN_TERM = 2
 # 의미 검색 기준(bge-m3 코사인 거리). 합성 서면 4건으로 맞춘 값이라 실제 자료가 쌓이면 다시 맞춘다.
 # - 관련 있는 자료는 대개 0.45 이하, 관련 없는 자료는 0.55 이상이었다.
+UNREVIEWED_DRAFT_WEIGHT = 0.7
 SEMANTIC_MAX = 0.52
 SEMANTIC_BAND = 0.04
 """가장 가까운 자료보다 이만큼 이상 먼 자료는 뺀다(관련 없는 자료가 줄줄이 붙지 않게)."""
@@ -49,7 +54,8 @@ def _embed(embedder: Embedder | None, texts: list[str]) -> list[list[float]] | N
 
 def _fill(doc: LibraryDoc, pages: list[str], embedder: Embedder | None) -> None:
     pieces = chunk_pages(pages)
-    vectors = _embed(embedder, [p.text for p in pieces])
+    # 조각만으로는 무슨 문서인지 모를 수 있어 제목을 붙여 임베딩한다(저장하는 글은 조각 그대로)
+    vectors = _embed(embedder, [f"{doc.title}\n{p.text}" for p in pieces])
     doc.chunks = [
         LibraryChunk(seq=i, page=p.page, text=p.text, embedding=vectors[i] if vectors else None)
         for i, p in enumerate(pieces)
@@ -119,6 +125,19 @@ def index_court_document(session: Session, document_id: str, embedder: Embedder 
     )
 
 
+def _drop_older_drafts(session: Session, draft: Draft) -> None:
+    """같은 사건·같은 서식의 예전 초안 항목을 뺀다(최종본은 남긴다). 사건이 없는 초안은 건드리지 않는다."""
+    if draft.case_id is None:
+        return
+    query = (
+        select(LibraryDoc)
+        .join(Draft, LibraryDoc.draft_id == Draft.id)
+        .where(LibraryDoc.kind == "draft", Draft.case_id == draft.case_id, Draft.form_id == draft.form_id, Draft.id != draft.id)
+    )
+    for old in session.scalars(query):
+        remove(session, old)
+
+
 def index_draft(session: Session, draft_id: str, embedder: Embedder | None) -> LibraryDoc | None:
     parsed = repo._parse_id(draft_id)
     draft = session.get(Draft, parsed) if parsed else None
@@ -126,16 +145,39 @@ def index_draft(session: Session, draft_id: str, embedder: Embedder | None) -> L
         return None
     file = session.get(File, draft.file_id)
     assert file is not None
+    _drop_older_drafts(session, draft)
     return add(
         session, title=file.name.removesuffix(".docx"), kind="draft", file=file, mime=file.mime,
         case=draft.case, embedder=embedder, draft_id=draft.id,
     )
 
 
+def index_final(session: Session, draft: Draft, file: File, mime: str, embedder: Embedder | None) -> LibraryDoc:
+    """사람이 고쳐 낸 최종본을 자료실에 넣는다. 그 초안 항목과 같은 사건·서식의 예전 초안 항목은 뺀다."""
+    for old in session.scalars(select(LibraryDoc).where(LibraryDoc.draft_id == draft.id)):
+        remove(session, old)
+    session.flush()
+    _drop_older_drafts(session, draft)
+    base = draft.file.name.removesuffix(".docx").removesuffix("_초안")
+    return add(
+        session, title=f"{base}_최종본", kind="filing", file=file, mime=mime, case=draft.case,
+        embedder=embedder, draft_id=draft.id,
+    )
+
+
+def status_label(doc: LibraryDoc) -> str | None:
+    """초안·최종본의 상태. 직접 올린 자료와 법원 문서는 None."""
+    if doc.draft_id is None or doc.draft is None:
+        return None
+    if doc.kind != "draft":
+        return "최종본"
+    return "검토 완료 초안" if doc.draft.reviewed_by else "검토 전 초안"
+
+
 def list_docs(session: Session, kind: str | None = None, limit: int = 200) -> list[LibraryDoc]:
     query = (
         select(LibraryDoc)
-        .options(selectinload(LibraryDoc.case), selectinload(LibraryDoc.file))
+        .options(selectinload(LibraryDoc.case), selectinload(LibraryDoc.file), selectinload(LibraryDoc.draft))
         .order_by(LibraryDoc.created_at.desc())
         .limit(limit)
     )
@@ -148,7 +190,11 @@ def get_doc(session: Session, doc_id: str) -> LibraryDoc | None:
     parsed = repo._parse_id(doc_id)
     if parsed is None:
         return None
-    query = select(LibraryDoc).where(LibraryDoc.id == parsed).options(selectinload(LibraryDoc.file), selectinload(LibraryDoc.case))
+    query = (
+        select(LibraryDoc)
+        .where(LibraryDoc.id == parsed)
+        .options(selectinload(LibraryDoc.file), selectinload(LibraryDoc.case), selectinload(LibraryDoc.draft))
+    )
     return session.scalars(query).first()
 
 
@@ -156,9 +202,9 @@ UPLOADED_KINDS = ("filing", "form", "other")
 
 
 def remove(session: Session, doc: LibraryDoc) -> None:
-    """자료실에서 뺀다. 자료실에 직접 올린 파일은 함께 지우고, 법원 문서·초안의 원본은 그대로 둔다."""
+    """자료실에서 뺀다. 자료실에 직접 올린 파일은 함께 지우고, 법원 문서·초안·최종본의 원본은 그대로 둔다."""
     repo.audit(session, "library.delete", "library_doc", doc.id, {"title": doc.title, "kind": doc.kind})
-    file_id = doc.file_id if doc.kind in UPLOADED_KINDS else None
+    file_id = doc.file_id if doc.kind in UPLOADED_KINDS and doc.draft_id is None else None
     session.execute(delete(LibraryChunk).where(LibraryChunk.doc_id == doc.id))
     session.delete(doc)
     session.flush()
@@ -208,17 +254,22 @@ def search(
     if not text:
         return []
     ranks: dict[int, float] = {}
-    matched: dict[int, set[str]] = {}
+    found: dict[int, set[str]] = {}
 
     terms = terms_of(text) or [text]
-    hits = [cast(LibraryChunk.text.ilike(f"%{t}%"), Integer) for t in terms]
-    matched_terms = sum(hits[1:], hits[0])
-    keyword_score = matched_terms + func.word_similarity(text, LibraryChunk.text)
+    compact_query = re.sub(r"\s+", "", text)
+    title = func.regexp_replace(LibraryDoc.title, r"\s+", "", "g")
+    # 낱말마다 본문이나 제목에 들어 있으면 1점. 제목에 들어 있으면 1점을 더 준다.
+    in_title = [cast(title.ilike(f"%{t}%"), Integer) for t in terms]
+    matched = [cast(or_(LibraryChunk.compact.ilike(f"%{t}%"), title.ilike(f"%{t}%")), Integer) for t in terms]
+    matched_terms = sum(matched[1:], matched[0])
+    similarity = func.word_similarity(compact_query, LibraryChunk.compact)
+    keyword_score = matched_terms + sum(in_title[1:], in_title[0]) + similarity
     # 검색어 낱말의 절반 이상이 들어 있어야 한다("피고" 같은 흔한 낱말 하나만 맞는 자료는 빼려고)
     needed = max(1, (len(terms) + 1) // 2)
     keyword = _filters(
         select(LibraryChunk.id, keyword_score.label("score"))
-        .where(or_(matched_terms >= needed, func.word_similarity(text, LibraryChunk.text) > 0.5))
+        .where(or_(matched_terms >= needed, similarity > 0.5))
         .order_by(keyword_score.desc())
         .limit(CANDIDATES),
         kind,
@@ -226,7 +277,7 @@ def search(
     )
     for rank, (chunk_id, _) in enumerate(session.execute(keyword)):
         ranks[chunk_id] = ranks.get(chunk_id, 0) + 1 / (RRF_K + rank + 1)
-        matched.setdefault(chunk_id, set()).add("keyword")
+        found.setdefault(chunk_id, set()).add("keyword")
 
     vector = _embed(embedder, [text])
     if vector:
@@ -245,7 +296,7 @@ def search(
             if dist > cutoff:
                 break
             ranks[chunk_id] = ranks.get(chunk_id, 0) + 1 / (RRF_K + rank + 1)
-            matched.setdefault(chunk_id, set()).add("semantic")
+            found.setdefault(chunk_id, set()).add("semantic")
 
     if not ranks:
         return []
@@ -254,15 +305,22 @@ def search(
         for c in session.scalars(
             select(LibraryChunk)
             .where(LibraryChunk.id.in_(ranks))
-            .options(selectinload(LibraryChunk.doc).selectinload(LibraryDoc.case), selectinload(LibraryChunk.doc).selectinload(LibraryDoc.file))
+            .options(
+                selectinload(LibraryChunk.doc).selectinload(LibraryDoc.case),
+                selectinload(LibraryChunk.doc).selectinload(LibraryDoc.file),
+                selectinload(LibraryChunk.doc).selectinload(LibraryDoc.draft),
+            )
         )
     }
     best: dict[uuid.UUID, Hit] = {}
-    for chunk_id, score in sorted(ranks.items(), key=lambda kv: -kv[1]):
+    for chunk_id, score in ranks.items():
         chunk = chunks[chunk_id]
-        if chunk.doc_id not in best:
-            best[chunk.doc_id] = Hit(chunk.doc, chunk, score, matched[chunk_id])
-    return list(best.values())[:limit]
+        if status_label(chunk.doc) == "검토 전 초안":
+            score *= UNREVIEWED_DRAFT_WEIGHT
+        current = best.get(chunk.doc_id)
+        if current is None or score > current.score:
+            best[chunk.doc_id] = Hit(chunk.doc, chunk, score, found[chunk_id])
+    return sorted(best.values(), key=lambda h: -h.score)[:limit]
 
 
 def snippet(text: str, terms: list[str], width: int = 180) -> str:

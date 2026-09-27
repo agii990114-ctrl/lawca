@@ -231,6 +231,10 @@ class DraftOut(BaseModel):
     created_by: str | None
     reviewed_by: str | None
     reviewed_at: datetime | None
+    final_file_id: str | None = None
+    final_filename: str | None = None
+    final_uploaded_by: str | None = None
+    final_uploaded_at: datetime | None = None
 
 
 # 캘린더

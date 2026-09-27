@@ -26,6 +26,7 @@ from lawca.db.models import (
     Event,
     File,
     Job,
+    LibraryDoc,
     Message,
     MessageFile,
     Party,
@@ -815,6 +816,17 @@ def correct_document_case(
         d.case_id = case.id
     for e in document_events(session, document):
         e.case_id = case.id
+    for item in session.scalars(select(LibraryDoc).where(LibraryDoc.document_id == document.id)):
+        item.case_id = case.id  # 자료실의 사건별 검색에서도 고친 사건으로 찾히게
     audit(session, "document.correct", "document", document.id, {"before": before, "after": document.corrections})
     session.flush()
     return case
+
+
+def set_final(session: Session, draft: Draft, file: File) -> None:
+    before = str(draft.final_file_id) if draft.final_file_id else None
+    draft.final_file_id = file.id
+    draft.final_uploaded_by = actor(session)
+    draft.final_uploaded_at = _now()
+    audit(session, "draft.final", "draft", draft.id, {"file_id": str(file.id), "replaced": before})
+    session.flush()

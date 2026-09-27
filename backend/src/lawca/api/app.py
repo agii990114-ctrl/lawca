@@ -25,6 +25,8 @@ from lawca.api.deps import DB, CurrentUser, Lawyer, SessionFactory, Worker
 from lawca.api.documents_api import router as documents_router
 from lawca.api.embedding import EmbedderFactory
 from lawca.api.library_api import router as library_router
+from lawca.library import UnsupportedLibraryFile, detect_mime
+from lawca.library import store as library_store
 from lawca.api.users import router as users_router
 from lawca.api.records import record_out
 from lawca.api.schemas import (
@@ -596,7 +598,15 @@ def export_csv(_: Worker, session: DB) -> Response:
 
 def draft_out(d: Any) -> DraftOut:
     return DraftOut(
-        id=str(d.id), form_id=d.form_id, created_by=d.created_by, reviewed_by=d.reviewed_by, reviewed_at=d.reviewed_at
+        id=str(d.id),
+        form_id=d.form_id,
+        created_by=d.created_by,
+        reviewed_by=d.reviewed_by,
+        reviewed_at=d.reviewed_at,
+        final_file_id=str(d.final_file_id) if d.final_file_id else None,
+        final_filename=d.final_file.name if d.final_file else None,
+        final_uploaded_by=d.final_uploaded_by,
+        final_uploaded_at=d.final_uploaded_at,
     )
 
 
@@ -617,3 +627,36 @@ def review_draft(draft_id: str, _: Lawyer, session: DB) -> DraftOut:
     repo.review_draft(session, draft)
     session.commit()
     return draft_out(draft)
+
+
+@app.post("/api/drafts/{draft_id}/final")
+def upload_final(
+    draft_id: str,
+    file: Annotated[UploadFile, File()],
+    _: Worker,
+    session: DB,
+    make_embedder: EmbedderFactory,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> DraftOut:
+    """초안을 고쳐 실제로 낸 최종본(DOCX·PDF)을 올린다. 자료실에는 초안 대신 최종본이 들어간다."""
+    draft = repo.get_draft(session, draft_id)
+    if draft is None:
+        raise HTTPException(404, "초안을 찾을 수 없습니다.")
+    limit = settings.max_upload_mb * 1024 * 1024
+    data = file.file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(413, f"{settings.max_upload_mb}MB를 넘는 파일은 올릴 수 없습니다.")
+    name = file.filename or "최종본"
+    try:
+        mime = detect_mime(name, data)
+    except UnsupportedLibraryFile as exc:
+        raise HTTPException(415, str(exc)) from exc
+    if mime == "text/plain":
+        raise HTTPException(415, "최종본은 DOCX나 PDF로 올려 주세요.")
+    stored = repo.save_file(session, name, data, mime=mime)
+    library_store.index_final(session, draft, stored, mime, make_embedder())
+    repo.set_final(session, draft, stored)
+    session.commit()
+    saved = repo.get_draft(session, draft_id)
+    assert saved is not None
+    return draft_out(saved)
