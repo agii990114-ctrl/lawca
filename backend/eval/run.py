@@ -28,7 +28,7 @@ from lawca.ollama import OllamaExtractor
 
 ROOT = Path(__file__).resolve().parent
 LABELS = {"document_type": "문서 종류", "court": "법원", "case_number": "사건번호", "case_name": "사건명",
-          "parties": "당사자", "issued_date": "발령일", "designated_period": "보정 기간"}
+          "parties": "당사자", "issued_date": "발령일", "designated_period": "보정 기간", "hearing": "기일"}
 
 
 def make_extractor(provider: str):

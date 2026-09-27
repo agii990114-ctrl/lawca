@@ -1,13 +1,13 @@
 """DB 테이블 정의.
 
-지금 저장하는 것: 사용자·로그인 세션, 대화·메시지, 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 서식 초안,
+지금 저장하는 것: 사용자·로그인 세션, 대화·메시지, 일정(기일·직접 입력), 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 서식 초안,
 작업(Job, 되묻기로 멈춘 LangGraph 실행), 감사 기록.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any
 
 from sqlalchemy import (
@@ -22,6 +22,7 @@ from sqlalchemy import (
     LargeBinary,
     String,
     Text,
+    Time,
     UniqueConstraint,
     func,
 )
@@ -58,6 +59,8 @@ class User(Timestamped, Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    calendar_token_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
+    """캘린더 구독 주소 토큰의 해시. 주소는 발급할 때 한 번만 보여 준다."""
 
 
 class UserSession(Timestamped, Base):
@@ -168,6 +171,8 @@ class Document(Timestamped, Base):
     text_available: Mapped[bool] = mapped_column(Boolean)
     extraction: Mapped[dict[str, Any]] = mapped_column()
     issues: Mapped[list[Any]] = mapped_column(default=list)
+    pending_dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """'송달일 입력 대기' 목록에서 뺀 시각(기한을 잡지 않기로 한 문서)."""
 
     case: Mapped[Case | None] = relationship(back_populates="documents")
     file: Mapped[File] = relationship()
@@ -203,6 +208,32 @@ class Deadline(Timestamped, Base):
 
     document: Mapped[Document] = relationship()
     case: Mapped[Case | None] = relationship()
+
+
+class Event(Timestamped, Base):
+    """캘린더 일정. 기일통지서에서 읽은 기일(hearing)과 사람이 넣은 일정(manual). 기한은 deadlines 표에 있다."""
+
+    __tablename__ = "events"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_uuid)
+    kind: Mapped[str] = mapped_column(String(16))
+    """hearing(기일) | manual(직접 입력)"""
+    title: Mapped[str] = mapped_column(String(200))
+    day: Mapped[date] = mapped_column(Date, index=True)
+    at: Mapped[time | None] = mapped_column(Time)
+    location: Mapped[str | None] = mapped_column(String(200))
+    memo: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(16), default="confirmed", index=True)
+    """tentative(미확정, 문서에서 읽은 값) | confirmed(확정) | cancelled(취소)"""
+    visibility: Mapped[str] = mapped_column(String(16), default="firm")
+    """firm(법인 전체) | private(본인만)"""
+    case_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("cases.id"), index=True)
+    document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"), index=True)
+    created_by: Mapped[str] = mapped_column(String(50))
+    confirmed_by: Mapped[str | None] = mapped_column(String(50))
+
+    case: Mapped[Case | None] = relationship()
+    document: Mapped[Document | None] = relationship()
 
 
 class Job(Timestamped, Base):

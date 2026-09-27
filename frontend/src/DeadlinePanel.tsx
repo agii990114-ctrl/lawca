@@ -11,6 +11,7 @@ import {
   type Suggestion,
   type Unit,
 } from './api'
+import { useUser } from './auth/UserContext'
 import { dDay, daysUntil, formatDate, todayIso } from './format'
 
 const SERVICE_LABELS: Record<ServiceKind, string> = {
@@ -34,12 +35,16 @@ export default function DeadlinePanel({
   documentId,
   fileId,
   documentType,
+  onConfirmed,
 }: {
   suggestions: Suggestion[]
   documentId?: string | null
   fileId: string
   documentType: string
+  onConfirmed?: (record: DeadlineRecord) => void
 }) {
+  // 확정한 기한의 취소는 변호사만 한다(서버도 막는다).
+  const canCancel = useUser().role === 'lawyer'
   const [choice, setChoice] = useState(suggestions.length > 0 ? 0 : MANUAL)
   const [manual, setManual] = useState<{ amount: number; unit: Unit }>({ amount: 7, unit: '일' })
   const [eventDate, setEventDate] = useState(todayIso())
@@ -101,6 +106,7 @@ export default function DeadlinePanel({
       const record = await confirmDeadline({ ...result.request, document_id: documentId, file_id: fileId })
       setConfirmed((all) => [...all, record].sort((a, b) => a.deadline.localeCompare(b.deadline)))
       setResult(null)
+      onConfirmed?.(record)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -134,7 +140,7 @@ export default function DeadlinePanel({
                   <strong>{formatDate(d.deadline)}</strong> {d.label}
                   <span className="muted"> · 송달 {formatDate(d.event_date)}</span>
                 </span>
-                {d.status === 'confirmed' && (
+                {d.status === 'confirmed' && canCancel && (
                   <button type="button" className="link-button" onClick={() => cancel(d)}>
                     확정 취소
                   </button>

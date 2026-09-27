@@ -6,7 +6,7 @@ import hashlib
 import io
 import re
 import uuid
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
 from pypdf import PdfReader
@@ -23,6 +23,7 @@ from lawca.db.models import (
     Deadline,
     Document,
     Draft,
+    Event,
     File,
     Job,
     Message,
@@ -289,7 +290,41 @@ def save_document(session: Session, result: DocumentOut) -> Document:
         document.id,
         {"file_id": result.file_id, "document_type": document.document_type, "case_id": str(document.case_id)},
     )
+    if doc.hearing is not None:
+        add_hearing(session, document, doc)
     return document
+
+
+def add_hearing(session: Session, document: Document, doc: Any) -> Event | None:
+    """문서에서 읽은 기일을 '미확정' 일정으로 올린다. 날짜를 읽지 못했으면 올리지 않는다(검증 경고로 남는다)."""
+    hearing = doc.hearing
+    try:
+        day = date.fromisoformat(hearing.date)
+    except ValueError:
+        return None
+    at = None
+    if hearing.time:
+        try:
+            at = time.fromisoformat(hearing.time)
+        except ValueError:
+            at = None
+    kind = hearing.kind or "기일"
+    event = Event(
+        kind="hearing",
+        title=kind,
+        day=day,
+        at=at,
+        location=hearing.place,
+        status="tentative",
+        visibility="firm",
+        case_id=document.case_id,
+        document_id=document.id,
+        created_by=actor(session),
+    )
+    session.add(event)
+    session.flush()
+    audit(session, "event.create", "event", event.id, {"kind": "hearing", "day": day.isoformat(), "document_id": str(document.id)})
+    return event
 
 
 # 기한
@@ -333,7 +368,7 @@ def create_deadline(
         basis=list(result.basis),
         warnings=list(result.warnings),
         status="confirmed",
-        confirmed_by=SYSTEM_ACTOR,
+        confirmed_by=actor(session),
     )
     session.add(deadline)
     session.flush()
@@ -530,3 +565,119 @@ def review_draft(session: Session, draft: Draft) -> Draft:
         audit(session, "draft.review", "draft", draft.id, {"form_id": draft.form_id})
         session.flush()
     return draft
+
+
+# 캘린더
+
+
+def _event_query():
+    return select(Event).options(
+        selectinload(Event.case), selectinload(Event.document).selectinload(Document.file)
+    )
+
+
+def list_events(
+    session: Session, start: date, end: date, username: str, *, statuses: list[str] | None = None
+) -> list[Event]:
+    """start~end의 일정 중 이 사용자가 볼 수 있는 것(법인 공개 + 본인 비공개)."""
+    query = (
+        _event_query()
+        .where(Event.day >= start, Event.day <= end)
+        .where((Event.visibility == "firm") | (Event.created_by == username))
+        .order_by(Event.day, Event.at.nulls_first(), Event.created_at)
+    )
+    if statuses:
+        query = query.where(Event.status.in_(statuses))
+    return list(session.scalars(query))
+
+
+def get_event(session: Session, event_id: str, username: str) -> Event | None:
+    parsed = _parse_id(event_id)
+    event = session.scalars(_event_query().where(Event.id == parsed)).first() if parsed else None
+    if event is None or (event.visibility == "private" and event.created_by != username):
+        return None
+    return event
+
+
+def create_event(
+    session: Session,
+    *,
+    title: str,
+    day: date,
+    at: time | None,
+    location: str | None,
+    memo: str,
+    visibility: str,
+    case: Case | None,
+) -> Event:
+    event = Event(
+        kind="manual",
+        title=title.strip(),
+        day=day,
+        at=at,
+        location=(location or "").strip() or None,
+        memo=memo.strip(),
+        status="confirmed",
+        visibility=visibility,
+        case_id=case.id if case else None,
+        created_by=actor(session),
+        confirmed_by=actor(session),
+    )
+    session.add(event)
+    session.flush()
+    audit(session, "event.create", "event", event.id, {"kind": "manual", "day": day.isoformat()})
+    return event
+
+
+def update_event(session: Session, event: Event, changes: dict[str, Any]) -> Event:
+    """바뀐 항목만 고치고 감사 기록에 남긴다. status가 confirmed가 되면 확정한 사람을 적는다."""
+    before = {}
+    for key, value in changes.items():
+        old = getattr(event, key)
+        if old != value:
+            before[key] = str(old) if old is not None else None
+            setattr(event, key, value)
+    if changes.get("status") == "confirmed" and "status" in before:
+        event.confirmed_by = actor(session)
+    if before:
+        audit(session, "event.update", "event", event.id, {"changed": before})
+    session.flush()
+    return event
+
+
+def pending_documents(session: Session, limit: int = 50) -> list[Document]:
+    """기한을 하나도 확정하지 않았고, 목록에서 빼지도 않은 문서(최근 것부터)."""
+    has_deadline = select(Deadline.id).where(Deadline.document_id == Document.id).exists()
+    query = (
+        select(Document)
+        .where(~has_deadline, Document.pending_dismissed_at.is_(None))
+        .options(selectinload(Document.case), selectinload(Document.file))
+        .order_by(Document.created_at.desc())
+        .limit(limit)
+    )
+    return list(session.scalars(query))
+
+
+def dismiss_pending(session: Session, document: Document) -> None:
+    document.pending_dismissed_at = _now()
+    audit(session, "document.dismiss_pending", "document", document.id, {})
+    session.flush()
+
+
+def get_document(session: Session, document_id: str) -> Document | None:
+    parsed = _parse_id(document_id)
+    return session.get(Document, parsed) if parsed else None
+
+
+def issue_calendar_token(session: Session, user: User) -> str:
+    """캘린더 구독 주소용 토큰을 새로 만든다. 예전 주소는 더 이상 쓸 수 없다."""
+    token = new_token()
+    user.calendar_token_hash = token_hash(token)
+    audit(session, "user.calendar_token", "user", user.id, {})
+    session.flush()
+    return token
+
+
+def user_for_calendar_token(session: Session, token: str) -> User | None:
+    query = select(User).where(User.calendar_token_hash == token_hash(token), User.deleted_at.is_(None))
+    return session.scalars(query).first()

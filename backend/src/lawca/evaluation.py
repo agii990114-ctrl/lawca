@@ -4,6 +4,7 @@
 - 문자열 항목은 공백을 무시하고 비교한다(원문 표기 "서 울 중 앙"과 "서울중앙"을 같게 본다).
 - 당사자는 (지위, 이름) 집합이 같아야 맞다.
 - 날짜는 정규화한 뒤(YYYY-MM-DD) 비교한다.
+- 기일(hearing)은 [날짜, 시각]을 비교한다. 기일이 없는 문서는 null이 정답이다.
 - 정답에 없는 항목(skip)은 채점하지 않는다.
 """
 
@@ -16,7 +17,9 @@ from typing import Any
 from lawca.extraction.normalize import normalize
 from lawca.extraction.schema import CourtDocument
 
-FIELDS = ("document_type", "court", "case_number", "case_name", "parties", "issued_date", "designated_period")
+FIELDS = (
+    "document_type", "court", "case_number", "case_name", "parties", "issued_date", "designated_period", "hearing",
+)
 WHITESPACE = re.compile(r"\s+")
 
 
@@ -34,6 +37,7 @@ def extracted_values(doc: CourtDocument) -> dict[str, Any]:
         "parties": sorted((_compact(p.role), _compact(p.name)) for p in doc.parties),
         "issued_date": doc.issued_date.value if doc.issued_date else None,
         "designated_period": [doc.designated_period.amount, doc.designated_period.unit] if doc.designated_period else None,
+        "hearing": [doc.hearing.date, doc.hearing.time] if doc.hearing else None,
     }
 
 

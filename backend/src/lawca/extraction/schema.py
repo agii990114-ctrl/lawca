@@ -41,6 +41,14 @@ class DesignatedPeriod(BaseModel):
     evidence: Evidence
 
 
+class Hearing(BaseModel):
+    date: str = Field(description="출석할 기일의 날짜. YYYY-MM-DD")
+    time: str | None = Field(description="시각. HH:MM(24시간). 예: 오후 2시 30분 → 14:30")
+    kind: str | None = Field(description="기일 종류. 예: 변론기일, 변론준비기일, 조정기일, 선고기일")
+    place: str | None = Field(description="장소. 예: 제303호 법정")
+    evidence: Evidence
+
+
 class CourtDocument(BaseModel):
     document_type: DocumentType
     document_type_evidence: Evidence
@@ -54,4 +62,8 @@ class CourtDocument(BaseModel):
     )
     designated_period: DesignatedPeriod | None = Field(
         description="문서가 정한 기간. 예: '송달받은 날부터 7일 이내' → 7, 일. 문서에 없으면 null"
+    )
+    hearing: Hearing | None = Field(
+        default=None,
+        description="문서가 알리는 기일(출석할 날짜와 시각). 작성일이 아니다. 기일통지서·출석요구서 등에만 있고, 없으면 null",
     )

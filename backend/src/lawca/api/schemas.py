@@ -225,3 +225,93 @@ class DraftOut(BaseModel):
     created_by: str | None
     reviewed_by: str | None
     reviewed_at: datetime | None
+
+
+# 캘린더
+
+Source = Literal["deadline", "hearing", "manual"]
+
+
+class CalendarItemOut(BaseModel):
+    """캘린더에 그리는 한 칸. 기한(deadline)과 일정(hearing·manual)을 같은 모양으로 보낸다."""
+
+    id: str
+    source: Source
+    day: date
+    time: str | None
+    """HH:MM(한국 시간). 없으면 종일."""
+    title: str
+    """캘린더에 보이는 제목(종류·사건번호 포함)."""
+    label: str
+    """고칠 때 쓰는 원래 제목."""
+    status: str
+    """deadline: confirmed | done, 일정: tentative | confirmed"""
+    case_number: str | None
+    court: str | None
+    case_name: str | None
+    location: str | None
+    memo: str
+    created_by: str | None
+    confirmed_by: str | None
+    visibility: Literal["firm", "private"]
+    file_id: str | None
+    filename: str | None
+    document_type: str | None
+    details: list[str]
+    can_edit: bool
+    """이 사용자가 일정을 고치거나 취소할 수 있는지(직접 만든 일정 또는 변호사)."""
+
+
+class HolidayOut(BaseModel):
+    day: date
+    name: str
+
+
+class CalendarOut(BaseModel):
+    start: date
+    end: date
+    items: list[CalendarItemOut]
+    holidays: list[HolidayOut]
+
+
+TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
+
+
+class EventCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    day: date
+    time: str | None = Field(default=None, pattern=TIME_PATTERN)
+    location: str | None = Field(default=None, max_length=200)
+    memo: str = Field(default="", max_length=2000)
+    visibility: Literal["firm", "private"] = "firm"
+    case_number: str | None = None
+
+
+class EventUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    day: date | None = None
+    time: str | None = Field(default=None, pattern=TIME_PATTERN)
+    clear_time: bool = False
+    """true면 시각을 지워 종일 일정으로 바꾼다."""
+    location: str | None = Field(default=None, max_length=200)
+    memo: str | None = Field(default=None, max_length=2000)
+    status: Literal["confirmed", "cancelled"] | None = None
+
+
+class PendingDocumentOut(BaseModel):
+    """기한을 아직 확정하지 않은 문서(송달일 입력 대기)."""
+
+    document_id: str
+    file_id: str
+    filename: str
+    document_type: str
+    case_number: str | None
+    court: str | None
+    issued_date: date | None
+    created_at: datetime
+    suggestions: list[SuggestionOut]
+
+
+class FeedOut(BaseModel):
+    path: str
+    """구독 주소의 경로. 화면이 자기 주소(origin)를 앞에 붙인다."""

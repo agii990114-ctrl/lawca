@@ -18,5 +18,9 @@
   "issued_date": "2026-09-01",
   "skip": [
     "designated_period"
+  ],
+  "hearing": [
+    "2026-10-15",
+    "14:30"
   ]
 }

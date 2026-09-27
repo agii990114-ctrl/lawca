@@ -61,7 +61,7 @@ CHECKLIST_BY_TYPE: dict[DocumentType, list[str]] = {
         "답변서 제출 기한 등록",
     ],
     DocumentType.HEARING_NOTICE: [
-        "기일을 일정에 등록",
+        "캘린더에 올라간 기일(미확정)을 원문과 대조해 확정",
         "담당 변호사에게 기일 보고",
     ],
     DocumentType.OTHER: ["문서 내용을 담당 변호사에게 보고"],

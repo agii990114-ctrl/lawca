@@ -60,7 +60,7 @@ def _check_evidence(field: str, evidence: Evidence, pages: list[str]) -> Issue |
 
 def _evidences(doc: CourtDocument) -> list[tuple[str, Evidence]]:
     items: list[tuple[str, Evidence]] = [("document_type", doc.document_type_evidence)]
-    for name in ("court", "case_number", "case_name", "issued_date", "order_summary", "designated_period"):
+    for name in ("court", "case_number", "case_name", "issued_date", "order_summary", "designated_period", "hearing"):
         value = getattr(doc, name)
         if value is not None:
             items.append((name, value.evidence))
@@ -87,6 +87,16 @@ def validate(doc: CourtDocument, pages: list[str], today: date) -> list[Issue]:
         else:
             if issued > today:
                 issues.append(Issue("issued_date", "error", f"발령일이 오늘 이후입니다: {issued}"))
+
+    if doc.hearing is not None:
+        try:
+            date.fromisoformat(doc.hearing.date)
+        except ValueError:
+            issues.append(Issue("hearing", "error", f"기일 날짜 형식이 아닙니다: {doc.hearing.date}"))
+        if doc.hearing.time and not re.fullmatch(r"\d{2}:\d{2}", doc.hearing.time):
+            issues.append(Issue("hearing", "warning", f"기일 시각을 읽지 못했습니다: {doc.hearing.time}"))
+    elif doc.document_type is DocumentType.HEARING_NOTICE:
+        issues.append(Issue("hearing", "warning", "기일 날짜를 문서에서 찾지 못했습니다. 직접 확인하세요."))
 
     if doc.document_type is DocumentType.CORRECTION_ORDER and doc.designated_period is None:
         issues.append(Issue("designated_period", "warning", "보정기간을 문서에서 찾지 못했습니다. 직접 입력하세요."))

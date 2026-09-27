@@ -9,17 +9,17 @@ export default function Sidebar({
   open,
   onSelect,
   onNew,
-  onShowDeadlines,
+  onShowView,
   footer,
 }: {
   conversations: ConversationSummary[]
   activeId: string | null
   loadError: string | null
-  view: 'chat' | 'deadlines'
+  view: 'chat' | 'deadlines' | 'calendar'
   open: boolean
   onSelect: (id: string) => void
   onNew: () => void
-  onShowDeadlines: () => void
+  onShowView: (view: 'deadlines' | 'calendar') => void
   footer?: ReactNode
 }) {
   return (
@@ -30,10 +30,17 @@ export default function Sidebar({
       </button>
       <button
         type="button"
-        className={`nav-item${view === 'deadlines' ? ' active' : ''}`}
-        onClick={onShowDeadlines}
+        className={`nav-item${view === 'calendar' ? ' active' : ''}`}
+        onClick={() => onShowView('calendar')}
       >
-        기한
+        캘린더
+      </button>
+      <button
+        type="button"
+        className={`nav-item${view === 'deadlines' ? ' active' : ''}`}
+        onClick={() => onShowView('deadlines')}
+      >
+        기한 목록
       </button>
       <div className="sidebar-label">대화</div>
       {loadError && <p className="issue error">{loadError}</p>}

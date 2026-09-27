@@ -32,6 +32,12 @@ function rowsOf(doc: DocumentResult['extraction']): Row[] {
     const value = `${amount}${unit === '월' ? '개월' : unit}`
     rows.push({ field: 'designated_period', label: '문서가 정한 기간', value, evidence })
   }
+  if (doc.hearing) {
+    const { date, time, kind, place, evidence } = doc.hearing
+    const when = /^\d{4}-\d{2}-\d{2}$/.test(date) ? formatDate(date) : date
+    const value = [when, time, place].filter(Boolean).join(' · ') + ' (캘린더에 미확정으로 등록)'
+    rows.push({ field: 'hearing', label: kind || '기일', value, evidence })
+  }
   return rows
 }
 

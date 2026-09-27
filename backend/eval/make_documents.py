@@ -5,6 +5,7 @@
 - 함정: 변론종결일과 선고일이 함께 있는 판결, 작성일과 기일이 함께 있는 기일통지서, 두 쪽 문서, 피고 두 명
 
 정답의 skip은 채점하지 않는 항목이다. 문서가 정한 기간(designated_period)은 보정명령에서만 채점한다.
+기일(hearing)은 기일통지서에만 있고, 나머지 문서는 null(기일 없음)이 정답이다.
 
 사용법: uv run python eval/make_documents.py   (Windows의 맑은 고딕 글꼴이 필요하다)
 """
@@ -236,7 +237,7 @@ def specs() -> list[Spec]:
     out.append(Spec("h01_기일통지서", [h01], {
         "document_type": "기일통지서", "court": "서울남부지방법원", "case_number": "2026가단9921",
         "case_name": "부당이득금", "parties": [["원고", "오세영"], ["피고", "윤태호"]],
-        "issued_date": "2026-09-01", "skip": ["designated_period"],
+        "issued_date": "2026-09-01", "skip": ["designated_period"], "hearing": ["2026-10-15", "14:30"],
     }, scan=True, stamp_text="법원주사"))
     return out
 
@@ -295,7 +296,7 @@ def main() -> None:
         for variant, data in variants:
             name = f"{spec.id}_{variant}"
             (DOCS / f"{name}.pdf").write_bytes(data)
-            truth = {"source": "synthetic", "variant": variant, **spec.truth}
+            truth = {"source": "synthetic", "variant": variant, "hearing": None, **spec.truth}
             (TRUTH / f"{name}.json").write_text(json.dumps(truth, ensure_ascii=False, indent=2), encoding="utf-8")
             count += 1
     print(f"{count}건 → {DOCS}")

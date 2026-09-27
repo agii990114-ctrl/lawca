@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from lawca.agent.graph import GRAPH_VERSION, Deps, ModelsNotConfigured, graph_for
 from lawca.agent.llm import ChatModel, Turn, gemini_models
+from lawca.api.calendar import deadline_details, deadline_title
+from lawca.api.calendar import router as calendar_router
 from lawca.api.chat import answer_summary, chat_events, resume_events
 from lawca.api.deps import DB, CurrentUser, Lawyer, SessionFactory, Worker
 from lawca.api.users import router as users_router
@@ -59,6 +61,7 @@ from lawca.ollama import OllamaChat, OllamaClient, OllamaExtractor
 app = FastAPI(title="lawca API", version="0.1.0")
 
 app.include_router(users_router)
+app.include_router(calendar_router)
 
 UNITS = {u.value: u for u in Unit}
 
@@ -464,27 +467,11 @@ def update_deadline(deadline_id: str, req: DeadlineStatusUpdate, user: Worker, s
     return _one(session, saved.id)
 
 
-def _title(d: Deadline) -> str:
-    case = f" · {d.case.case_number}" if d.case else ""
-    return f"[만료] {d.label}{case}"
-
-
-def _description(d: Deadline) -> str:
-    lines = [
-        f"문서: {d.document.document_type} ({d.document.file.name})",
-        f"송달일: {d.event_date.isoformat()} ({SERVICE_LABELS.get(d.service_kind, d.service_kind)})",
-        f"기간: {d.period_amount}{d.period_unit}",
-        f"근거: {', '.join(d.basis)}",
-    ]
-    lines += [f"주의: {w}" for w in d.warnings]
-    return "\n".join(lines)
-
-
 @app.get("/api/deadlines/export.ics")
 def export_ics(_: Worker, session: DB) -> Response:
     """확정 상태인 기한을 캘린더 파일로 내보낸다. 완료·취소한 기한은 넣지 않는다."""
     events = [
-        IcsEvent(uid=f"{d.id}@lawca", day=d.deadline, summary=_title(d), description=_description(d))
+        IcsEvent(uid=f"{d.id}@lawca", day=d.deadline, summary=deadline_title(d), description="\n".join(deadline_details(d)))
         for d in repo.list_deadlines(session, ["confirmed"])
     ]
     return Response(

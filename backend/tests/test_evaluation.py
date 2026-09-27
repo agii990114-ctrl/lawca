@@ -10,7 +10,7 @@ from tests.test_extraction import correction_order, ev
 TRUTH = {
     "document_type": "보정명령", "court": "서울중앙지방법원", "case_number": "2026가단51234",
     "case_name": "대여금", "parties": [["원고", "홍길동"]], "issued_date": "2026-09-15",
-    "designated_period": [7, "일"],
+    "designated_period": [7, "일"], "hearing": None,
 }
 
 
@@ -50,7 +50,7 @@ def test_skip_and_summary():
     assert summary["documents"] == 2 and summary["exact_match"] == 1
     assert summary["per_field"]["case_name"] == {"correct": 1, "total": 2}
     assert summary["per_field"]["designated_period"] == {"correct": 1, "total": 1}
-    assert summary["field_accuracy"] == 12 / 13  # 6/6 + 6/7
+    assert summary["field_accuracy"] == 14 / 15  # 7/7 + 7/8
 
 
 def test_truth_files_are_well_formed():

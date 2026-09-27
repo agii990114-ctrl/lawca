@@ -1,4 +1,10 @@
 :root {
+  --deadline: #b42318;
+  --deadline-soft: #fdecea;
+  --hearing: #23498f;
+  --hearing-soft: #e7eef9;
+  --manual: #4b5563;
+  --manual-soft: #eef0f3;
   --text: #1d2127;
   --muted: #646b75;
   --border: #dde1e6;
@@ -1422,6 +1428,455 @@ button.secondary:disabled {
   margin-top: 8px;
 }
 
+/* 캘린더 */
+
+.calendar-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  padding: 16px 20px;
+  overflow-y: auto;
+}
+
+.calendar-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.calendar-nav,
+.calendar-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-nav h1 {
+  margin-left: 8px;
+  font-size: 20px;
+}
+
+button.primary.small {
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.segmented button {
+  padding: 3px 12px;
+  border: none;
+  background: var(--surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border-strong);
+}
+
+.segmented button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.calendar-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.weekday {
+  padding: 4px 6px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--muted);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 104px;
+  padding: 4px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.calendar-grid.week .day {
+  min-height: 360px;
+}
+
+.calendar-grid.week .chip {
+  white-space: normal;
+}
+
+.day:hover {
+  background: #fafaf8;
+}
+
+.day.outside {
+  background: #fafaf8;
+}
+
+.day.outside .day-number {
+  opacity: 0.45;
+}
+
+.day.selected {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.day-head {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+.day-number {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.day.today .day-number {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+}
+
+.day.holiday .day-number,
+.weekday.holiday,
+.holiday-name {
+  color: var(--error);
+}
+
+.day.saturday .day-number,
+.weekday.saturday {
+  color: var(--accent);
+}
+
+/* 오늘은 요일 색과 관계없이 파란 원에 흰 글자 */
+.day.today .day-number {
+  color: #fff;
+}
+
+.holiday-name {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chips {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.chip {
+  display: block;
+  width: 100%;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.chip.deadline {
+  background: var(--deadline-soft);
+  color: var(--deadline);
+  border-color: var(--deadline-soft);
+}
+
+.chip.hearing {
+  background: var(--hearing-soft);
+  color: var(--hearing);
+  border-color: var(--hearing-soft);
+}
+
+.chip.manual {
+  background: var(--manual-soft);
+  color: var(--manual);
+  border-color: var(--manual-soft);
+}
+
+/* 미확정: 점선 테두리와 흰 바탕으로 확정 일정과 구분한다 */
+.chip.tentative {
+  background: var(--surface);
+  border: 1px dashed currentColor;
+}
+
+.chip.done {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+
+.chip.active {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.chip-time {
+  margin-right: 4px;
+  font-weight: 600;
+}
+
+.chip-flag {
+  margin-right: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.more {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.dots {
+  display: none;
+}
+
+.calendar-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.day-panel,
+.pending {
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.day-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.chip.wide {
+  padding: 4px 8px;
+  font-size: 13px;
+  white-space: normal;
+}
+
+.item-detail {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.item-detail h3 {
+  margin: 6px 0 2px;
+}
+
+.item-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.source-tag,
+.status-tag {
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--manual-soft);
+  color: var(--manual);
+}
+
+.source-tag.deadline {
+  background: var(--deadline-soft);
+  color: var(--deadline);
+}
+
+.source-tag.hearing {
+  background: var(--hearing-soft);
+  color: var(--hearing);
+}
+
+.status-tag.tentative {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.item-time {
+  color: var(--accent);
+}
+
+.item-lines {
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.item-memo {
+  margin: 6px 0;
+  padding: 6px 8px;
+  background: var(--background);
+  border-radius: 4px;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.legend .chip {
+  width: auto;
+  cursor: default;
+}
+
+.pending h3 .count {
+  display: inline-block;
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+  text-align: center;
+}
+
+.pending ul {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pending li {
+  border-top: 1px solid var(--border);
+}
+
+.pending-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.pending-tools {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.pending-body .card {
+  margin: 0 0 8px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.modal textarea {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+}
+
+.visibility {
+  display: flex;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  font-size: 13px;
+}
+
+.visibility legend {
+  margin-bottom: 4px;
+  color: var(--muted);
+}
+
+.visibility label {
+  flex-direction: row;
+  align-items: center;
+  color: var(--text);
+}
+
+.feed-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+
+.feed-url {
+  display: flex;
+  gap: 6px;
+}
+
+.feed-url input {
+  flex: 1;
+  font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .calendar-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* 좁은 화면: 대화 목록은 ☰ 버튼으로 여는 덮개로, 미리보기는 전체 화면으로 연다. 기본 규칙보다 뒤에 둬야 한다. */
 
 @media (max-width: 900px) {
@@ -1508,5 +1963,57 @@ button.secondary:disabled {
     margin: 0 0 0 auto;
     padding: 0;
     border-top: none;
+  }
+
+  /* 캘린더: 칸이 좁아 월 보기에서는 글 대신 점으로 보이고, 날짜를 누르면 아래 목록에 나온다 */
+  .calendar-view {
+    padding: 12px;
+  }
+
+  .calendar-grid.month .day {
+    min-height: 56px;
+  }
+
+  .calendar-grid.month .chips,
+  .calendar-grid.month .holiday-name {
+    display: none;
+  }
+
+  .calendar-grid.month .dots {
+    display: flex;
+    gap: 3px;
+    margin-top: auto;
+  }
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--manual);
+  }
+
+  .dot.deadline {
+    background: var(--deadline);
+  }
+
+  .dot.hearing {
+    background: var(--hearing);
+  }
+
+  .dot.tentative {
+    background: none;
+    border: 1px dashed var(--hearing);
+  }
+
+  .calendar-grid.week {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .calendar-grid.week .weekday {
+    display: none;
+  }
+
+  .calendar-grid.week .day {
+    min-height: 0;
   }
 }

@@ -58,6 +58,10 @@ class HolidayCalendar:
             return "일요일"
         return None
 
+    def holidays_between(self, start: date, end: date) -> list[tuple[date, str]]:
+        """start~end(포함) 사이의 공휴일(일요일 제외). 데이터가 없는 연도는 건너뛴다."""
+        return sorted((d, name) for d, name in self._holidays.items() if start <= d <= end)
+
     def closed_reason(self, day: date) -> str | None:
         """민법 제161조의 '토요일 또는 공휴일'이면 그 사유를, 아니면 None을 돌려준다."""
         name = self.holiday_name(day)

@@ -9,8 +9,22 @@ from lawca.api.schemas import DocumentOut, IssueOut, PeriodOut, SuggestionOut
 from lawca.db.models import File
 from lawca.extraction.gemini import Extractor
 from lawca.extraction.normalize import normalize
+from lawca.extraction.schema import CourtDocument
 from lawca.extraction.validate import has_text, pdf_text_pages, validate
 from lawca.workflow import checklist, suggest_deadlines
+
+
+def suggestions_out(doc: CourtDocument) -> list[SuggestionOut]:
+    return [
+        SuggestionOut(
+            kind=s.kind,
+            label=s.label,
+            rule_id=s.rule_id,
+            period=PeriodOut.of(s.period) if s.period else None,
+            note=s.note,
+        )
+        for s in suggest_deadlines(doc)
+    ]
 
 
 def analyze(stored: File, extractor: Extractor, today: date) -> DocumentOut:
@@ -23,16 +37,7 @@ def analyze(stored: File, extractor: Extractor, today: date) -> DocumentOut:
         text_available=has_text(pages),
         extraction=doc,
         issues=[IssueOut(**asdict(i)) for i in validate(doc, pages, today)],
-        suggestions=[
-            SuggestionOut(
-                kind=s.kind,
-                label=s.label,
-                rule_id=s.rule_id,
-                period=PeriodOut.of(s.period) if s.period else None,
-                note=s.note,
-            )
-            for s in suggest_deadlines(doc)
-        ],
+        suggestions=suggestions_out(doc),
         checklist=checklist(doc),
     )
 
@@ -46,6 +51,12 @@ def summarize(result: DocumentOut) -> str:
     errors = sum(1 for i in result.issues if i.level == "error")
     if result.issues:
         lines.append(f"확인이 필요한 항목이 {len(result.issues)}건 있습니다(오류 {errors}건 포함).")
+    if doc.hearing is not None:
+        when = " ".join(v for v in (doc.hearing.date, doc.hearing.time) if v)
+        lines.append(
+            f"{doc.hearing.kind or '기일'}({when})을 캘린더에 **미확정** 일정으로 올렸습니다. "
+            "원문과 대조한 뒤 캘린더에서 확정하세요."
+        )
     if result.suggestions:
         lines.append("송달일은 문서에 적혀 있지 않습니다. 아래에 송달일을 입력하면 기한을 계산합니다.")
     return "\n\n".join(lines)

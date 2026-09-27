@@ -28,6 +28,7 @@ export interface CourtDocument {
   issued_date: TextField | null
   order_summary: TextField | null
   designated_period: { amount: number; unit: Unit; evidence: Evidence } | null
+  hearing?: { date: string; time: string | null; kind: string | null; place: string | null; evidence: Evidence } | null
 }
 
 export interface Period {
@@ -431,3 +432,81 @@ export async function streamResume(
 export const downloadUrl = (id: string) => `/api/files/${id}/content`
 
 export const fileUrl = (id: string, page = 1) => `/api/files/${id}/content#page=${page}`
+
+// 캘린더
+
+export type CalendarSource = 'deadline' | 'hearing' | 'manual'
+
+export interface CalendarItem {
+  id: string
+  source: CalendarSource
+  day: string
+  time: string | null
+  title: string
+  label: string
+  status: 'tentative' | 'confirmed' | 'done'
+  case_number: string | null
+  court: string | null
+  case_name: string | null
+  location: string | null
+  memo: string
+  created_by: string | null
+  confirmed_by: string | null
+  visibility: 'firm' | 'private'
+  file_id: string | null
+  filename: string | null
+  document_type: string | null
+  details: string[]
+  can_edit: boolean
+}
+
+export interface CalendarData {
+  start: string
+  end: string
+  items: CalendarItem[]
+  holidays: { day: string; name: string }[]
+}
+
+export interface PendingDocument {
+  document_id: string
+  file_id: string
+  filename: string
+  document_type: string
+  case_number: string | null
+  court: string | null
+  issued_date: string | null
+  created_at: string
+  suggestions: Suggestion[]
+}
+
+export interface EventInput {
+  title: string
+  day: string
+  time: string | null
+  location: string | null
+  memo: string
+  visibility: 'firm' | 'private'
+  case_number: string | null
+}
+
+export type EventPatch = Partial<Omit<EventInput, 'visibility' | 'case_number'>> & {
+  clear_time?: boolean
+  status?: 'confirmed' | 'cancelled'
+}
+
+export function getCalendar(start: string, end: string, mine: boolean) {
+  const query = new URLSearchParams({ start, end, mine: String(mine) })
+  return getJson<CalendarData>(`/api/calendar?${query}`)
+}
+
+export const createEvent = (input: EventInput) => getJson<CalendarItem>('/api/events', jsonBody('POST', input))
+
+export const updateEvent = (id: string, patch: EventPatch) =>
+  getJson<CalendarItem>(`/api/events/${id}`, jsonBody('PATCH', patch))
+
+export const getPending = () => getJson<PendingDocument[]>('/api/calendar/pending')
+
+export const dismissPending = (documentId: string) =>
+  send(`/api/documents/${documentId}/dismiss-pending`, { method: 'POST' })
+
+export const issueFeed = () => getJson<{ path: string }>('/api/calendar/feed', { method: 'POST' })
