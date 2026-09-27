@@ -3,7 +3,7 @@ import { formatTime } from '../format'
 import DocumentCard from './DocumentCard'
 import FileCard from './FileCard'
 import { DraftCard, QuestionCard, type Answer } from './FormCards'
-import { CaseListCard, DeadlineCalcCard, DeadlineListCard, SearchCard } from './QueryCards'
+import { BriefSummaryCard, CaseListCard, DeadlineCalcCard, DeadlineListCard, SearchCard } from './QueryCards'
 import type { Attachment, Message, Step } from './types'
 
 function StepLine({ step }: { step: Step }) {
@@ -23,12 +23,14 @@ export default function MessageView({
   onOpenFile,
   onShowDeadlines,
   onShowLibrary,
+  onShowCase,
   onAnswer,
 }: {
   message: Message
   onOpenFile: (fileId: string, name: string, page?: number) => void
   onShowDeadlines: () => void
   onShowLibrary: () => void
+  onShowCase: (caseNumber: string) => void
   onAnswer: Answer
 }) {
   if (message.role === 'user') {
@@ -108,6 +110,8 @@ export default function MessageView({
               return <DraftCard key={card.draft_id} data={card} />
             case 'search':
               return <SearchCard key={i} query={card.query} items={card.items} onShowLibrary={onShowLibrary} />
+            case 'brief_summary':
+              return <BriefSummaryCard key={i} data={card} onShowCase={onShowCase} />
             default:
               return null
           }

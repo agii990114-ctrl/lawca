@@ -23,12 +23,14 @@ class FakeChatModel:
         script: list[list[Chunk]] | None = None,
         unavailable: bool = False,
         form_request: tuple[str | None, str | None, dict[str, str]] | None = None,
+        brief: BaseModel | None = None,
     ) -> None:
         self.model = model
         self.tasks = tasks or [("help", "")]
         self.script = list(script or [])
         self.unavailable = unavailable
         self.form_request = form_request or (None, None, {})
+        self.brief = brief
         self.seen_turns: list[list[Turn]] = []
 
     def structured(self, system: str, turns: list[Turn], schema: type[T]) -> T:
@@ -39,6 +41,9 @@ class FakeChatModel:
             form_id, case_number, values = self.form_request
             items = [FieldValue(key=k, value=v) for k, v in values.items()]
             return FormRequest(form_id=form_id, case_number=case_number, values=items)  # type: ignore[return-value]
+        if schema.__name__ == "BriefSummary":
+            assert self.brief is not None, "brief 요약 대본이 없습니다"
+            return self.brief  # type: ignore[return-value]
         assert schema is RouteDecision
         return RouteDecision(tasks=[RoutedTask(label=label, request=req) for label, req in self.tasks])  # type: ignore[return-value]
 

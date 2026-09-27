@@ -125,6 +125,14 @@ export type Card =
   | ({ kind: 'question' } & QuestionCardData)
   | ({ kind: 'draft' } & DraftCardData)
   | { kind: 'search'; query: string; items: SearchCardItem[] }
+  | ({ kind: 'brief_summary'; document_id: string; document_type: string; file_id: string; filename: string; case_number: string | null } & BriefSummary)
+
+export interface BriefSummary {
+  submitter: string | null
+  request_summary: string | null
+  claims: { point: string; detail: string; quote: string; page: number; verified: boolean }[]
+  evidence: { side: EvidenceSide; number: string; label: string; title: string }[]
+}
 
 export interface SearchCardItem {
   doc_id: string
@@ -640,3 +648,76 @@ export function uploadLibrary(file: File, form: { kind: LibraryKind; title: stri
 
 export const deleteLibrary = (id: string) => send(`/api/library/${id}`, { method: 'DELETE' })
 export const reindexLibrary = (id: string) => getJson<LibraryDoc>(`/api/library/${id}/reindex`, { method: 'POST' })
+
+// 사건·증거·준비서면
+
+export type EvidenceSide = '갑' | '을' | '병'
+
+export interface CaseListItem {
+  case_number: string
+  court: string | null
+  case_name: string | null
+  parties: { role: string; name: string }[]
+  documents: number
+  open_deadlines: number
+  evidence: number
+}
+
+export interface EvidenceItem {
+  id: string
+  side: EvidenceSide
+  number: string
+  label: string
+  title: string
+  note: string
+  submitted_on: string | null
+  from_summary: boolean
+  created_by: string
+}
+
+export interface CaseDetail extends CaseListItem {
+  facts: Record<string, string>
+  document_list: {
+    document_id: string
+    document_type: string
+    issued_date: string | null
+    filename: string
+    file_id: string
+    created_at: string
+    summary: BriefSummary | null
+  }[]
+  deadlines: DeadlineRecord[]
+  evidence_list: EvidenceItem[]
+}
+
+const caseUrl = (n: string) => `/api/cases/${encodeURIComponent(n)}`
+
+export const listCases = (q?: string) => getJson<CaseListItem[]>(`/api/cases${q ? `?q=${encodeURIComponent(q)}` : ''}`)
+export const getCase = (n: string) => getJson<CaseDetail>(caseUrl(n))
+
+export const addEvidence = (n: string, body: { side: EvidenceSide; number?: string; title: string; note?: string }) =>
+  getJson<EvidenceItem>(`${caseUrl(n)}/evidence`, jsonBody('POST', body))
+
+export const addEvidenceBulk = (n: string, source_document_id: string, items: { side: string; number: string; title: string }[]) =>
+  getJson<{ added: string[]; skipped: string[] }>(`${caseUrl(n)}/evidence/bulk`, jsonBody('POST', { source_document_id, items }))
+
+export const updateEvidence = (
+  id: string,
+  body: { number?: string; title?: string; note?: string; submitted_on?: string; clear_submitted?: boolean },
+) => getJson<EvidenceItem>(`/api/evidence/${id}`, jsonBody('PATCH', body))
+
+export const deleteEvidence = (id: string) => send(`/api/evidence/${id}`, { method: 'DELETE' })
+
+export interface BriefResult {
+  draft_id: string
+  file_id: string
+  filename: string
+  size: number
+  evidence: string[]
+  body_empty: boolean
+}
+
+export const makeBrief = (
+  n: string,
+  body: { side: '원고' | '피고'; title: string; agent: string; body: string; evidence_ids: string[]; attachments: string[] },
+) => getJson<BriefResult>(`${caseUrl(n)}/brief`, jsonBody('POST', body))

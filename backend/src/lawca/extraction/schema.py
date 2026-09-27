@@ -16,7 +16,13 @@ class DocumentType(StrEnum):
     SETTLEMENT_RECOMMENDATION = "화해권고결정"
     COMPLAINT_COPY = "소장 부본"
     HEARING_NOTICE = "기일통지서"
+    ANSWER = "답변서"
+    BRIEF = "준비서면"
+    """답변서·준비서면은 법원이 아니라 상대방 당사자가 낸 서면이다(법원이 부본을 송달한다)."""
     OTHER = "기타"
+
+
+PARTY_FILINGS = (DocumentType.ANSWER, DocumentType.BRIEF)
 
 
 class Evidence(BaseModel):

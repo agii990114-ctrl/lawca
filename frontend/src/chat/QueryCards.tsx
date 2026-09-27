@@ -1,4 +1,5 @@
-import { fileUrl, type CaseSummary, type DeadlineRecord, type DeadlineResult, type SearchCardItem } from '../api'
+import { fileUrl, type BriefSummary, type CaseSummary, type DeadlineRecord, type DeadlineResult, type SearchCardItem } from '../api'
+import BriefSummaryView from '../cases/BriefSummaryView'
 import { dDay, daysUntil, formatDate } from '../format'
 
 type OpenFile = (fileId: string, name: string) => void
@@ -187,5 +188,30 @@ export function ReferenceList({ items, open = false }: { items: SearchCardItem[]
         ))}
       </ul>
     </details>
+  )
+}
+
+// 상대방 답변서·준비서면 요약 카드
+export function BriefSummaryCard({
+  data,
+  onShowCase,
+}: {
+  data: BriefSummary & { document_id: string; document_type: string; file_id: string; filename: string; case_number: string | null }
+  onShowCase: (caseNumber: string) => void
+}) {
+  return (
+    <section className="card">
+      <header className="card-header">
+        <h3>
+          상대방 {data.document_type} 요약{data.submitter ? ` · ${data.submitter}` : ''}
+        </h3>
+        {data.case_number && (
+          <button type="button" className="link-button" onClick={() => onShowCase(data.case_number!)}>
+            사건 화면에서 보기
+          </button>
+        )}
+      </header>
+      <BriefSummaryView summary={data} documentId={data.document_id} fileId={data.file_id} caseNumber={data.case_number} />
+    </section>
   )
 }

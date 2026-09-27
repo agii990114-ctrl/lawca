@@ -125,6 +125,43 @@ def execution_clause() -> Document:
     return doc
 
 
+def brief() -> Document:
+    """준비서면 틀. 본문은 변호사가 쓴 글(문단 목록)이고, 입증방법·첨부서류는 증거 목록에서 채운다."""
+    doc = new_document("준비서면")
+    heading = doc.paragraphs[0]
+    heading.runs[0].text = "{{ title_spaced }}"  # "원고 제2준비서면"처럼 제목을 바꿀 수 있다
+    case_block(doc)
+    line(doc, "위 사건에 관하여 {{ subject }} 다음과 같이 변론을 준비합니다.")
+    doc.add_paragraph()
+    line(doc, "다        음", align=WD_ALIGN_PARAGRAPH.CENTER)
+    doc.add_paragraph()
+    line(doc, "{%p for para in body %}")
+    line(doc, "{{ para }}", space_after=10)
+    line(doc, "{%p endfor %}")
+    doc.add_paragraph()
+    line(doc, "{%p if evidence %}")
+    line(doc, "입  증  방  법", align=WD_ALIGN_PARAGRAPH.CENTER)
+    line(doc, "{%p for e in evidence %}")
+    line(doc, "1. {{ e.label }}    {{ e.title }}")
+    line(doc, "{%p endfor %}")
+    line(doc, "{%p endif %}")
+    line(doc, "{%p if attachments %}")
+    line(doc, "첨  부  서  류", align=WD_ALIGN_PARAGRAPH.CENTER)
+    line(doc, "{%p for a in attachments %}")
+    line(doc, "1. {{ a }}")
+    line(doc, "{%p endfor %}")
+    line(doc, "{%p endif %}")
+    doc.add_paragraph()
+    line(doc, "{{ filed_on }}", align=WD_ALIGN_PARAGRAPH.CENTER, space_after=18)
+    line(doc, "{{ side }} {{ representative }}  {{ signer }}  (서명 또는 날인)", align=WD_ALIGN_PARAGRAPH.RIGHT)
+    doc.add_paragraph()
+    court = doc.add_paragraph()
+    run = court.add_run("{{ court }}  귀중")
+    run.bold = True
+    run.font.size = Pt(14)
+    return doc
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     for name, build in [
@@ -133,6 +170,7 @@ def main() -> None:
         ("address_correction", address_correction),
         ("fact_inquiry", fact_inquiry),
         ("execution_clause", execution_clause),
+        ("brief", brief),
     ]:
         path = OUT / f"{name}.docx"
         build().save(path)

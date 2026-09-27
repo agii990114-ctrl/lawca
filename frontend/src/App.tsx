@@ -15,12 +15,13 @@ import Composer from './chat/Composer'
 import CalendarView from './calendar/CalendarView'
 import DeadlinesView from './DeadlinesView'
 import LibraryView from './library/LibraryView'
+import CasesView from './cases/CasesView'
 import MessageView from './chat/MessageView'
 import PreviewPanel from './chat/PreviewPanel'
 import Sidebar from './chat/Sidebar'
 import { fromServer, newId, type Attachment, type Message, type Preview } from './chat/types'
 
-type View = 'chat' | 'deadlines' | 'calendar' | 'library'
+type View = 'chat' | 'deadlines' | 'calendar' | 'library' | 'cases'
 
 const EXAMPLES = ['이번 주에 만료되는 기한 알려줘', '예전에 쓴 주소보정서 찾아줘', '9월 15일에 판결문을 받았으면 항소기한은?']
 const NO_MESSAGES: Message[] = []
@@ -50,6 +51,8 @@ export default function App({ userMenu }: { userMenu: ReactNode }) {
   // null이면 아직 저장하지 않은 새 대화. 첫 메시지를 보낼 때 서버에 만든다.
   const [activeId, setActiveId] = useState<string | null>(null)
   const [view, setView] = useState<View>('chat')
+  // 사건 화면에서 먼저 열 사건(채팅 카드의 '사건 화면에서 보기')
+  const [caseToOpen, setCaseToOpen] = useState<string | null>(null)
   // 좁은 화면에서만 쓰는 사이드바 열림 상태
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -276,6 +279,8 @@ export default function App({ userMenu }: { userMenu: ReactNode }) {
                 ? '캘린더'
                 : view === 'library'
                   ? '자료실'
+                  : view === 'cases'
+                    ? '사건'
                 : (summaries.find((c) => c.id === activeId)?.title ?? '새 대화')}
           </span>
         </div>
@@ -285,6 +290,8 @@ export default function App({ userMenu }: { userMenu: ReactNode }) {
           <CalendarView onOpenFile={(fileId, name) => setPreview({ fileId, name, page: 1 })} />
         ) : view === 'library' ? (
           <LibraryView />
+        ) : view === 'cases' ? (
+          <CasesView key={caseToOpen ?? 'cases'} initialCase={caseToOpen} onOpenFile={(fileId, name) => setPreview({ fileId, name, page: 1 })} />
         ) : activeId === null ? (
           <div className="empty">
             <h1>무엇을 도와드릴까요?</h1>
@@ -318,6 +325,11 @@ export default function App({ userMenu }: { userMenu: ReactNode }) {
                   }}
                   onShowLibrary={() => {
                     setView('library')
+                    setPreview(null)
+                  }}
+                  onShowCase={(caseNumber) => {
+                    setCaseToOpen(caseNumber)
+                    setView('cases')
                     setPreview(null)
                   }}
                   onAnswer={answer}

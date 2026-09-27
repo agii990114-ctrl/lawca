@@ -25,6 +25,7 @@ from lawca.api.deps import DB, CurrentUser, Lawyer, SessionFactory, Worker
 from lawca.api.documents_api import router as documents_router
 from lawca.api.embedding import EmbedderFactory
 from lawca.api.library_api import router as library_router
+from lawca.api.cases_api import router as cases_router
 from lawca.library import UnsupportedLibraryFile, detect_mime
 from lawca.library import store as library_store
 from lawca.api.users import router as users_router
@@ -70,6 +71,7 @@ app.include_router(users_router)
 app.include_router(calendar_router)
 app.include_router(documents_router)
 app.include_router(library_router)
+app.include_router(cases_router)
 
 UNITS = {u.value: u for u in Unit}
 

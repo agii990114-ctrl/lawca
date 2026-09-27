@@ -2168,6 +2168,239 @@ button.primary.small {
   margin-top: 8px;
 }
 
+/* 사건 화면 */
+
+.cases-view {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.case-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 12px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.case-list input {
+  width: 100%;
+  padding: 6px 8px;
+}
+
+.case-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.case-list li button {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.case-list li button.active,
+.case-list li button:hover {
+  background: var(--accent-soft);
+}
+
+.case-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.case-section {
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.case-docs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.case-docs li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.evidence-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.evidence-columns h4 {
+  margin: 0 0 6px;
+  font-size: 14px;
+}
+
+.evidence-table td {
+  white-space: normal;
+  vertical-align: top;
+}
+
+.evidence-table td.nowrap {
+  white-space: nowrap;
+}
+
+.evidence-table input {
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.evidence-number {
+  width: 70px !important;
+}
+
+.evidence-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.evidence-add input:not(.evidence-number) {
+  flex: 1;
+  min-width: 140px;
+}
+
+.brief-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.brief-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.brief-form textarea,
+.brief-form input,
+.brief-form select {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+}
+
+.brief-form button.primary {
+  align-self: flex-start;
+}
+
+.brief-evidence-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.brief-evidence-pick label {
+  flex-direction: row;
+  align-items: center;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.brief-evidence-pick input {
+  width: auto;
+}
+
+.brief-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.brief-summary {
+  font-size: 14px;
+}
+
+.brief-request {
+  margin: 0 0 8px;
+}
+
+.brief-claims {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.brief-claims p {
+  margin: 2px 0;
+}
+
+.brief-quote {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.issue.inline {
+  display: inline;
+  padding: 0 4px;
+}
+
+.brief-evidence {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.brief-evidence h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.brief-evidence ul {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+
+@media (max-width: 900px) {
+  .cases-view {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .case-list {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 40vh;
+  }
+}
+
 /* 좁은 화면: 대화 목록은 ☰ 버튼으로 여는 덮개로, 미리보기는 전체 화면으로 연다. 기본 규칙보다 뒤에 둬야 한다. */
 
 @media (max-width: 900px) {

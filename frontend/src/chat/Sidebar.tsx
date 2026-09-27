@@ -15,11 +15,11 @@ export default function Sidebar({
   conversations: ConversationSummary[]
   activeId: string | null
   loadError: string | null
-  view: 'chat' | 'deadlines' | 'calendar' | 'library'
+  view: 'chat' | 'deadlines' | 'calendar' | 'library' | 'cases'
   open: boolean
   onSelect: (id: string) => void
   onNew: () => void
-  onShowView: (view: 'deadlines' | 'calendar' | 'library') => void
+  onShowView: (view: 'deadlines' | 'calendar' | 'library' | 'cases') => void
   footer?: ReactNode
 }) {
   return (
@@ -27,6 +27,13 @@ export default function Sidebar({
       <div className="brand">lawca</div>
       <button type="button" className="new-chat" onClick={onNew}>
         + 새 대화
+      </button>
+      <button
+        type="button"
+        className={`nav-item${view === 'cases' ? ' active' : ''}`}
+        onClick={() => onShowView('cases')}
+      >
+        사건
       </button>
       <button
         type="button"

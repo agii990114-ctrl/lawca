@@ -24,6 +24,7 @@ from lawca.db.models import (
     Document,
     Draft,
     Event,
+    EvidenceItem,
     File,
     Job,
     LibraryDoc,
@@ -829,4 +830,74 @@ def set_final(session: Session, draft: Draft, file: File) -> None:
     draft.final_uploaded_by = actor(session)
     draft.final_uploaded_at = _now()
     audit(session, "draft.final", "draft", draft.id, {"file_id": str(file.id), "replaced": before})
+    session.flush()
+
+
+# 상대방 서면 요약과 증거 목록
+
+
+def set_summary(session: Session, document: Document, summary: dict[str, Any]) -> None:
+    document.summary = summary
+    audit(session, "document.summary", "document", document.id, {"claims": len(summary.get("claims", []))})
+    session.flush()
+
+
+def list_evidence(session: Session, case: Case) -> list[EvidenceItem]:
+    from lawca.agent.brief import number_key
+
+    rows = list(session.scalars(select(EvidenceItem).where(EvidenceItem.case_id == case.id)))
+    return sorted(rows, key=lambda e: (e.side, number_key(e.number)))
+
+
+def next_evidence_number(session: Session, case: Case, side: str) -> str:
+    from lawca.agent.brief import number_key
+
+    numbers = [e.number for e in list_evidence(session, case) if e.side == side]
+    top = max((number_key(n)[0] for n in numbers), default=0)
+    return str(top + 1)
+
+
+def get_evidence(session: Session, evidence_id: str) -> EvidenceItem | None:
+    parsed = _parse_id(evidence_id)
+    return session.get(EvidenceItem, parsed) if parsed else None
+
+
+def find_evidence(session: Session, case: Case, side: str, number: str) -> EvidenceItem | None:
+    query = select(EvidenceItem).where(EvidenceItem.case_id == case.id, EvidenceItem.side == side, EvidenceItem.number == number)
+    return session.scalars(query).first()
+
+
+def add_evidence(
+    session: Session,
+    case: Case,
+    *,
+    side: str,
+    number: str,
+    title: str,
+    note: str = "",
+    source_document_id: uuid.UUID | None = None,
+) -> EvidenceItem:
+    item = EvidenceItem(
+        case_id=case.id, side=side, number=number, title=title.strip(), note=note.strip(),
+        source_document_id=source_document_id, created_by=actor(session),
+    )
+    session.add(item)
+    session.flush()
+    audit(session, "evidence.add", "evidence", item.id, {"case": case.case_number, "label": f"{side}{number}", "title": item.title})
+    return item
+
+
+def update_evidence(session: Session, item: EvidenceItem, changes: dict[str, Any]) -> EvidenceItem:
+    before = {k: str(getattr(item, k)) for k, v in changes.items() if getattr(item, k) != v}
+    for key, value in changes.items():
+        setattr(item, key, value)
+    if before:
+        audit(session, "evidence.update", "evidence", item.id, {"before": before})
+    session.flush()
+    return item
+
+
+def delete_evidence(session: Session, item: EvidenceItem) -> None:
+    audit(session, "evidence.delete", "evidence", item.id, {"label": f"{item.side}{item.number}", "title": item.title})
+    session.delete(item)
     session.flush()

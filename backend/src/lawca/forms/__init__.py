@@ -178,3 +178,22 @@ def render(form: Form, values: dict[str, str]) -> bytes:
 
 def later_fields(form: Form, values: dict[str, str]) -> list[str]:
     return [f.label for f in form.fields if values.get(f.key) == LATER]
+
+
+BRIEF_BODY_PLACEHOLDER = "[본문: 담당 변호사 작성]"
+
+
+def render_brief(context: dict[str, Any]) -> bytes:
+    """준비서면 틀(data/brief.docx). context: title, side, representative, signer, body(문단 목록), evidence, attachments,
+    court, case_number, case_name, plaintiffs, defendants, filed_on(YYYY-MM-DD)."""
+    values = dict(context)
+    values["title_spaced"] = " ".join(values["title"]) if len(values["title"]) <= 6 else values["title"]
+    values["filed_on"] = _korean_date(values["filed_on"])
+    values["body"] = values.get("body") or [BRIEF_BODY_PLACEHOLDER]
+    # "원고 소송대리인은" / 대리인이 없으면 "원고는"
+    values["subject"] = f"{values['side']} {values['representative']}은" if values.get("representative") else f"{values['side']}는"
+    template = DocxTemplate(io.BytesIO(resources.files("lawca.forms").joinpath("data/brief.docx").read_bytes()))
+    template.render(values, autoescape=True)
+    out = io.BytesIO()
+    template.save(out)
+    return out.getvalue()

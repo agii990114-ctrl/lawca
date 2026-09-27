@@ -28,6 +28,7 @@ from langgraph.types import Command, interrupt
 from sqlalchemy.orm import Session
 
 from lawca.agent import draft as drafting
+from lawca.agent.brief import summarize_brief, summary_out
 from lawca.agent.documents import analyze, summarize
 from lawca.agent.llm import ChatModel, Turn, with_fallback
 from lawca.agent.query_agent import run_query
@@ -37,6 +38,8 @@ from lawca.db import repo
 from lawca.library import store as library_store
 from lawca.db.models import File
 from lawca.extraction.gemini import ExtractionError, Extractor, ModelUnavailableError
+from lawca.extraction.schema import PARTY_FILINGS
+from lawca.extraction.validate import has_text, pdf_text_pages
 
 log = logging.getLogger(__name__)
 GRAPH_VERSION = "2"
@@ -204,7 +207,49 @@ def document(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
         write({"type": "status", "id": step, "label": f"{stored.name} 읽음 · {result.model}", "state": "done"})
         write({"type": "text", "delta": prefix + summarize(result) + _existing_note(deps.session, document_id, result)})
         write({"type": "card", "card": {"kind": "document", **result.model_dump(mode="json")}})
+        if result.extraction.document_type in PARTY_FILINGS and document_id:
+            _summarize_filing(deps, write, stored, document_id, result, prefix=step)
     return {"index": state["index"] + 1}
+
+
+def _summarize_filing(deps: Deps, write: Callable[[dict[str, Any]], None], stored: File, document_id: str,
+                      result: DocumentOut, prefix: str) -> None:
+    """상대방 답변서·준비서면을 요약한다. 글이 없는 스캔본이나 모델 오류면 알리고 넘어간다."""
+    doc = result.extraction
+    step = f"{prefix}-summary"
+    pages = pdf_text_pages(stored.data)
+    if not has_text(pages):
+        write({"type": "text", "delta": "\n\n스캔본이라 서면 내용을 요약하지 못했습니다(글자를 읽을 수 있는 PDF가 필요합니다)."})
+        return
+    write({"type": "status", "id": step, "label": f"{doc.document_type.value} 요약 중", "state": "running"})
+    try:
+        summary = summary_out(summarize_brief(deps.make_models(), pages), pages)
+    except (ModelUnavailableError, ExtractionError, ModelsNotConfigured) as exc:
+        write({"type": "status", "id": step, "label": "요약 실패", "state": "error"})
+        write({"type": "text", "delta": f"\n\n서면을 요약하지 못했습니다. {exc}"})
+        return
+    document = repo.get_document(deps.session, document_id)
+    if document is not None:
+        repo.set_summary(deps.session, document, summary)
+        deps.session.commit()
+    write({"type": "status", "id": step, "label": f"{doc.document_type.value} 요약 완료", "state": "done"})
+    unverified = sum(1 for c in summary["claims"] if not c["verified"])
+    note = f" 원문에서 문구를 찾지 못한 주장이 {unverified}건 있으니 원문과 대조하세요." if unverified else ""
+    write({"type": "text", "delta": f"\n\n상대방 주장 {len(summary['claims'])}건, 증거 {len(summary['evidence'])}건을 정리했습니다.{note}"})
+    write(
+        {
+            "type": "card",
+            "card": {
+                "kind": "brief_summary",
+                "document_id": document_id,
+                "document_type": doc.document_type.value,
+                "file_id": result.file_id,
+                "filename": result.filename,
+                "case_number": doc.case_number.value if doc.case_number else None,
+                **summary,
+            },
+        }
+    )
 
 
 def query(state: ChatState, config: RunnableConfig) -> dict[str, Any]:

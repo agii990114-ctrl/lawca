@@ -1,6 +1,6 @@
 """DB 테이블 정의.
 
-지금 저장하는 것: 사용자·로그인 세션, 대화·메시지, 일정(기일·직접 입력), 자료실(문서·조각·임베딩), 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 서식 초안,
+지금 저장하는 것: 사용자·로그인 세션, 대화·메시지, 일정(기일·직접 입력), 자료실(문서·조각·임베딩), 증거 목록, 첨부 파일, 사건·당사자, 문서(추출 결과), 확정한 기한, 서식 초안,
 작업(Job, 되묻기로 멈춘 LangGraph 실행), 감사 기록.
 """
 
@@ -203,6 +203,8 @@ class Document(Timestamped, Base):
     text_available: Mapped[bool] = mapped_column(Boolean)
     extraction: Mapped[dict[str, Any]] = mapped_column()
     issues: Mapped[list[Any]] = mapped_column(default=list)
+    summary: Mapped[dict[str, Any] | None] = mapped_column()
+    """상대방 서면(답변서·준비서면)의 요약. 주장·증거 표시(lawca.agent.brief)."""
     corrections: Mapped[dict[str, Any]] = mapped_column(default=dict)
     """사람이 고친 사건 정보(court, case_number, case_name). 추출값(extraction)은 그대로 둔다."""
     pending_dismissed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -384,3 +386,28 @@ class LibraryChunk(Base):
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
 
     doc: Mapped[LibraryDoc] = relationship(back_populates="chunks")
+
+
+class EvidenceItem(Timestamped, Base):
+    """사건의 증거 목록(갑호증·을호증). 사무원이 번호를 매기고 제출 여부를 관리한다."""
+
+    __tablename__ = "evidence"
+    __table_args__ = (UniqueConstraint("case_id", "side", "number"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=_uuid)
+    case_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cases.id", ondelete="CASCADE"), index=True)
+    side: Mapped[str] = mapped_column(String(2))
+    """갑(원고) | 을(피고) | 병(참가인 등)"""
+    number: Mapped[str] = mapped_column(String(20))
+    """'3', '2-1'(제2호증의1)"""
+    title: Mapped[str] = mapped_column(String(300))
+    note: Mapped[str] = mapped_column(Text, default="")
+    file_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("files.id"))
+    source_document_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"))
+    """상대방 서면 요약에서 가져왔으면 그 문서."""
+    submitted_on: Mapped[date | None] = mapped_column(Date)
+    """법원에 낸 날. 비어 있으면 아직 내지 않았다."""
+    created_by: Mapped[str] = mapped_column(String(50))
+
+    case: Mapped[Case] = relationship()
+    file: Mapped[File | None] = relationship()
