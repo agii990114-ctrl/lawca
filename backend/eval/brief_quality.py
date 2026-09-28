@@ -1,8 +1,7 @@
 """준비서면 본문 작성 보조(2단계)의 품질 시험. 가상 사건 3건으로 모델이 쓴 본문을 코드로 점검하고 보고서를 쓴다.
 
-- 모델은 변호사 메모·상대방 서면 요약·증거 목록·사건 기록만 근거로 쓴다. 판례·법조문은 만들지 않고 [인용 확인 필요]로 남긴다.
-- 문단마다 근거(메모, 상대방 서면, 갑 제N호증)를 붙이게 한다.
-- 코드 점검: 판례·법조문 인용, 목록에 없는 증거 표시, 입력에 없는 금액·날짜, 근거 표시 누락.
+- 프롬프트·출력 형식·점검은 제품 코드(lawca.agent.brief_writer)를 그대로 쓴다.
+- 코드 점검: 쓰이지 않은 메모 줄, 판례·법조문 인용, 목록에 없는 증거 표시, 입력에 없는 금액·날짜, 근거 표시 누락.
 - API 사용량을 쓰므로 --allow-api가 있어야 돌고, 예비 모델로 넘어가지 않는다(호출 수를 정확히 지키려고).
 
     uv run python eval/brief_quality.py --allow-api                          # 기본 모델로 3건
@@ -19,44 +18,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from pydantic import BaseModel, Field
-
-from lawca.agent.llm import Turn, gemini_models
+from lawca.agent.brief_writer import BriefDraft, BriefInputs, check, write_brief
+from lawca.agent.llm import gemini_models
 from lawca.config import get_settings
 
 ROOT = Path(__file__).resolve().parent
-
-SYSTEM = """\
-당신은 한국 법무법인의 담당 변호사가 준비서면 본문을 쓰도록 돕습니다. 결과는 변호사가 검토하고 고칠 초안입니다.
-
-지켜야 할 것
-- 근거는 아래에 준 것뿐입니다: 변호사 메모, 상대방 서면 요약, 사건 기록, 증거 목록. 여기에 없는 사실·금액·날짜를 만들지 않습니다.
-- 판례를 인용하지 않습니다. 법조문도 변호사 메모에 적힌 것만 씁니다. 법리 인용이 필요해 보이면 그 자리에 "[인용 확인 필요]"라고 적습니다.
-- 변호사 메모의 주장 방향을 바꾸거나 새 주장을 더하지 않습니다. 메모를 준비서면 문장으로 풀어 쓰고, 상대방 주장과 대응시켜 정리합니다.
-- 증거는 목록에 있는 표시(예: 갑 제2호증)로만 가리킵니다.
-- 준비서면 문체(~합니다, ~입니다)로 씁니다. 과장하거나 상대방을 비난하는 표현을 쓰지 않습니다.
-
-형식
-- sections: "1. 피고 주장의 요지", "2. ○○ 주장에 대한 반박"처럼 번호 붙은 제목과 문단들. 마지막은 "결론" 절.
-- 문단마다 sources에 근거를 적습니다: "메모", "상대방 서면", "사건 기록", 또는 증거 표시(예: "갑 제1호증").
-- open_points: 변호사가 확인하거나 보충해야 할 점(근거가 부족한 곳, [인용 확인 필요] 자리 등).
-"""
-
-
-class Paragraph(BaseModel):
-    text: str
-    sources: list[str] = Field(description="근거: 메모 | 상대방 서면 | 사건 기록 | 갑 제N호증")
-
-
-class Section(BaseModel):
-    heading: str
-    paragraphs: list[Paragraph]
-
-
-class BriefDraft(BaseModel):
-    sections: list[Section]
-    open_points: list[str]
-
 
 CASES = [
     {
@@ -110,47 +76,8 @@ CASES = [
     },
 ]
 
-CASE_LAW = re.compile(r"(대법원|고등법원|지방법원)\s*\d{4}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}\s*\.?\s*(선고|자)|\d{2,4}\s*[가-힣]{1,3}\s*\d{2,}\s*(판결|결정)")
-STATUTE = re.compile(r"(민법|민사소송법|주택임대차보호법|상법|건설산업기본법)?\s*제\s*\d+\s*조")
-EVIDENCE = re.compile(r"(갑|을)\s*제?\s*\d+\s*호\s*증(?:\s*의\s*\d+)?")
-AMOUNT = re.compile(r"\d[\d,]*\s*(?:만\s*)?원")
-DATE = re.compile(r"(\d{4})\s*(?:\.|년)\s*(\d{1,2})\s*(?:\.|월)\s*(\d{1,2})\s*(?:\.|일)?")
-
-
-def prompt(case: dict) -> str:
-    return "\n".join(
-        [
-            "[사건 기록]", case["record"], "",
-            "[상대방 서면 요약]", *[f"- {c}" for c in case["opponent"]], "",
-            "[증거 목록]", *[f"- {e}" for e in case["evidence"]], "",
-            "[변호사 메모]", case["notes"], "",
-            "위 자료로 준비서면 본문을 작성하세요.",
-        ]
-    )
-
-
-def compact(text: str) -> str:
-    return re.sub(r"\s+", "", text)
-
-
-def check(case: dict, draft: BriefDraft) -> dict:
-    inputs = compact(prompt(case))
-    labels = {compact(m.group(0)) for e in case["evidence"] for m in [EVIDENCE.search(e)] if m}
-    paragraphs = [p for s in draft.sections for p in s.paragraphs]
-    body = "\n".join(p.text for p in paragraphs)
-    statutes = [m.group(0) for m in STATUTE.finditer(body) if compact(m.group(0)) not in inputs]
-    return {
-        "sections": len(draft.sections),
-        "paragraphs": len(paragraphs),
-        "chars": len(body),
-        "case_law": [m.group(0) for m in CASE_LAW.finditer(body)],
-        "statutes_not_in_notes": statutes,
-        "unknown_evidence": sorted({m.group(0) for m in EVIDENCE.finditer(body) if compact(m.group(0)) not in labels}),
-        "amounts_not_in_inputs": sorted({m.group(0) for m in AMOUNT.finditer(body) if compact(m.group(0)) not in inputs}),
-        "dates_not_in_inputs": sorted({m.group(0) for m in DATE.finditer(body) if f"{m[1]}.{int(m[2])}.{int(m[3])}" not in inputs}),
-        "paragraphs_without_source": sum(1 for p in paragraphs if not p.sources),
-        "citation_placeholders": body.count("[인용 확인 필요]"),
-    }
+def inputs_of(case: dict) -> BriefInputs:
+    return BriefInputs(record=case["record"], opponent=case["opponent"], evidence=case["evidence"], notes=case["notes"])
 
 
 def render(case: dict, draft: BriefDraft) -> list[str]:
@@ -182,12 +109,12 @@ def main() -> None:
     for case in chosen:
         started = time.perf_counter()
         try:
-            draft = model.structured(SYSTEM, [Turn("user", prompt(case))], BriefDraft)
+            draft = write_brief([model], inputs_of(case))
         except Exception as exc:  # noqa: BLE001 - 한도·혼잡이면 멈추고 알린다(재시도하지 않는다)
             print(f"{case['id']}: 실패 {exc}")
             break
         seconds = time.perf_counter() - started
-        result = check(case, draft)
+        result = check(inputs_of(case), draft)
         results.append({"case": case["id"], "model": model_name, "seconds": round(seconds, 1), "checks": result,
                         "draft": draft.model_dump()})
         print(case["id"], f"{seconds:.0f}s", json.dumps(result, ensure_ascii=False))

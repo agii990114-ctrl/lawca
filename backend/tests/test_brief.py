@@ -159,3 +159,66 @@ def test_brief_frame(client, answer_chat):  # noqa: F811
     # 자료실에는 사건의 가장 최근 준비서면 초안 하나만
     assert len([d for d in client.get("/api/library", params={"kind": "draft"}).json() if d["title"].startswith("준비서면")]) == 1
     assert client.get(f"{url}").json()["facts"]["our_side"] == "원고"
+
+
+# 준비서면 본문 초안(변호사)
+
+from lawca.agent.brief_writer import BriefDraft, BriefInputs, Paragraph, Section, body_text, check, note_lines  # noqa: E402
+from tests.conftest import login, make_user  # noqa: E402
+
+NOTES = """- 증여 아님: 통장 표시 '대여금'(갑1)
+- 문자는 변제 약속
+- 소멸시효 중단"""
+
+DRAFT = BriefDraft(
+    sections=[
+        Section(heading="1. 피고 주장의 요지", paragraphs=[Paragraph(text="피고는 증여라고 주장합니다.", sources=["상대방 서면"])]),
+        Section(
+            heading="2. 증여 주장에 대한 반박",
+            paragraphs=[
+                Paragraph(text="원고는 이체할 때 통장 표시를 '대여금'으로 적었습니다(갑 제1호증).", sources=["메모1", "갑 제1호증"]),
+                Paragraph(text="피고는 '갚을게'라고 보냈습니다. [인용 확인 필요]", sources=["메모2"]),
+            ],
+        ),
+        Section(heading="3. 결론", paragraphs=[Paragraph(text="원고의 청구는 인용되어야 합니다.", sources=["메모2"])]),
+    ],
+    open_points=["소멸시효 법리 보충"],
+)
+
+
+def test_note_lines_and_checks():
+    assert note_lines(NOTES) == ["증여 아님: 통장 표시 '대여금'(갑1)", "문자는 변제 약속", "소멸시효 중단"]
+    inputs = BriefInputs(record="사건 2026가단51234", opponent=["증여"], evidence=["갑 제1호증 계좌이체 내역"], notes=NOTES)
+    result = check(inputs, DRAFT)
+    assert result["notes_tracked"] is True and [n["number"] for n in result["unused_notes"]] == [3]
+    assert result["placeholders"] == 1 and result["case_law"] == [] and result["unknown_evidence"] == []
+    bad = DRAFT.model_copy(update={"sections": [Section(heading="x", paragraphs=[Paragraph(
+        text="대법원 2020. 1. 9. 선고 2019다12345 판결, 민법 제168조, 갑 제9호증, 500만 원", sources=["메모"])])]})
+    result = check(inputs, bad)
+    assert result["notes_tracked"] is False and result["unused_notes"] == []  # 번호가 없으면 판단하지 않는다
+    assert result["case_law"] and result["statutes_not_in_notes"] == ["민법 제168조"]
+    assert result["unknown_evidence"] == ["갑 제9호증"] and result["amounts_not_in_inputs"] == ["500만 원"]
+    assert body_text(DRAFT).startswith("1. 피고 주장의 요지\n피고는 증여라고 주장합니다.\n\n2. 증여 주장에 대한 반박\n")
+
+
+def test_brief_body_is_for_lawyers_and_uses_case_inputs(client, answer_chat, db):  # noqa: F811
+    url = "/api/cases/2026가단51234"
+    client.post(f"{url}/evidence", json={"side": "갑", "title": "계좌이체 내역", "note": "받는 통장 표시 '대여금'"})
+    body = {"side": "원고", "notes": NOTES}
+    assert client.post(f"{url}/brief/body", json=body).status_code == 403  # 사무원
+
+    model = FakeChatModel(draft=DRAFT)
+    use_models(model)
+    make_user(db, "lawyer1", "lawyer")
+    login(client, "lawyer1")
+    res = client.post(f"{url}/brief/body", json=body)
+    assert res.status_code == 200
+    out = res.json()
+    assert out["opponent_document"].startswith("답변서") and out["model"] == "fake"
+    assert [n["number"] for n in out["checks"]["unused_notes"]] == [3]
+    assert out["body"].startswith("1. 피고 주장의 요지") and out["open_points"] == ["소멸시효 법리 보충"]
+    # 모델에 간 글: 사건 기록·상대방 주장·증거(메모 포함)·번호 붙은 메모
+    sent = model.seen_turns[-1][-1].text
+    assert "우리는 원고 측" in sent and "대여가 아니라 증여" in sent
+    assert "갑 제1호증 계좌이체 내역(받는 통장 표시 '대여금')" in sent and "메모3: 소멸시효 중단" in sent
+    assert client.post(f"{url}/brief/body", json=body | {"document_id": "nope"}).status_code == 404

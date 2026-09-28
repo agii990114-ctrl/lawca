@@ -721,3 +721,25 @@ export const makeBrief = (
   n: string,
   body: { side: '원고' | '피고'; title: string; agent: string; body: string; evidence_ids: string[]; attachments: string[] },
 ) => getJson<BriefResult>(`${caseUrl(n)}/brief`, jsonBody('POST', body))
+
+export interface BriefBodyResult {
+  body: string
+  sections: { heading: string; paragraphs: { text: string; sources: string[] }[] }[]
+  open_points: string[]
+  checks: {
+    notes_tracked: boolean
+    unused_notes: { number: number; text: string }[]
+    case_law: string[]
+    statutes_not_in_notes: string[]
+    unknown_evidence: string[]
+    amounts_not_in_inputs: string[]
+    dates_not_in_inputs: string[]
+    paragraphs_without_source: number
+    placeholders: number
+  }
+  opponent_document: string | null
+  model: string
+}
+
+export const makeBriefBody = (n: string, body: { side: '원고' | '피고'; notes: string; document_id: string | null }) =>
+  getJson<BriefBodyResult>(`${caseUrl(n)}/brief/body`, jsonBody('POST', body))

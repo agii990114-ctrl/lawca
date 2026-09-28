@@ -15,6 +15,8 @@ import {
   type EvidenceSide,
 } from '../api'
 import { dDay, daysUntil, formatDate, todayIso } from '../format'
+import { useUser } from '../auth/UserContext'
+import BodyDraftPanel from './BodyDraftPanel'
 import BriefSummaryView from './BriefSummaryView'
 
 const SIDES: { side: EvidenceSide; label: string }[] = [
@@ -176,6 +178,7 @@ function BriefSection({ detail, onChanged }: { detail: CaseDetail; onChanged: ()
   const [agent, setAgent] = useState(detail.facts.brief_agent ?? '')
   const [body, setBody] = useState('')
   const [attachments, setAttachments] = useState('')
+  const isLawyer = useUser().role === 'lawyer'
   const ours: EvidenceSide = side === '원고' ? '갑' : '을'
   const candidates = detail.evidence_list.filter((e) => e.side === ours)
   const [chosen, setChosen] = useState<Set<string>>(() => new Set(candidates.filter((e) => !e.submitted_on).map((e) => e.id)))
@@ -216,6 +219,16 @@ function BriefSection({ detail, onChanged }: { detail: CaseDetail; onChanged: ()
     <section className="case-section">
       <h3>준비서면 틀 만들기</h3>
       <p className="muted">사건 정보, 입증방법, 첨부서류는 기록에서 채웁니다. 본문은 담당 변호사가 쓴 글을 붙여 넣거나 비워 두면 자리표시로 남깁니다.</p>
+      {isLawyer && (
+        <BodyDraftPanel
+          detail={detail}
+          side={side}
+          onUse={(text) => {
+            if (body.trim() && !window.confirm('본문 칸에 쓴 글을 초안으로 바꿀까요?')) return
+            setBody(text)
+          }}
+        />
+      )}
       <form className="brief-form" onSubmit={submit}>
         <div className="user-form-grid">
           <label>

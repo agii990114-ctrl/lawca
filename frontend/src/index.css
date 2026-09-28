@@ -2401,6 +2401,76 @@ button.primary.small {
   }
 }
 
+/* 준비서면 본문 초안(변호사) */
+
+.body-draft {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px;
+  border: 1px dashed var(--accent);
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+
+.body-draft h4 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--accent);
+}
+
+.body-draft label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.body-draft textarea,
+.body-draft select {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+}
+
+.body-draft > button {
+  align-self: flex-start;
+}
+
+.body-draft-result {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.body-draft-result ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+.draft-section {
+  margin-top: 8px;
+  font-size: 14px;
+}
+
+.draft-section p {
+  margin: 4px 0;
+}
+
+.source-tags {
+  font-size: 11px;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.body-draft-result > button {
+  align-self: flex-start;
+}
+
 /* 좁은 화면: 대화 목록은 ☰ 버튼으로 여는 덮개로, 미리보기는 전체 화면으로 연다. 기본 규칙보다 뒤에 둬야 한다. */
 
 @media (max-width: 900px) {

@@ -11,12 +11,15 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from lawca.agent.brief import evidence_label, number_key
-from lawca.api.deps import DB, Worker
+from lawca.agent.brief_writer import BriefInputs, body_text, check, note_lines, write_brief
+from lawca.api.deps import DB, Lawyer, Worker
 from lawca.api.embedding import EmbedderFactory
+from lawca.api.llm_deps import ModelsFactory
 from lawca.api.records import record_out
 from lawca.api.schemas import DeadlineRecordOut
 from lawca.db import repo
 from lawca.db.models import Case, EvidenceItem
+from lawca.extraction.gemini import ExtractionError, ModelUnavailableError
 from lawca.forms import render_brief
 from lawca.library import DOCX_MIME
 from lawca.library import store as library_store
@@ -296,4 +299,66 @@ def make_brief(case_number: str, req: BriefRequest, _: Worker, session: DB, make
     return BriefOut(
         draft_id=str(draft.id), file_id=str(file.id), filename=filename, size=len(data),
         evidence=[evidence_label(e.side, e.number) for e in evidence], body_empty=not body,
+    )
+
+
+# 준비서면 본문 초안(변호사)
+
+
+class BriefBodyRequest(BaseModel):
+    side: Literal["원고", "피고"]
+    notes: str = Field(min_length=1, max_length=10000, description="변호사 메모. 한 줄에 한 가지")
+    document_id: str | None = Field(default=None, description="반박할 상대방 서면. 비우면 가장 최근 요약")
+
+
+class BriefBodyOut(BaseModel):
+    body: str
+    """준비서면 틀 본문 칸에 넣을 글."""
+    sections: list[dict]
+    open_points: list[str]
+    checks: dict
+    opponent_document: str | None
+    model: str
+
+
+def _opponent(case: Case, document_id: str | None):  # noqa: ANN202
+    with_summary = sorted((d for d in case.documents if d.summary), key=lambda d: d.created_at, reverse=True)
+    if document_id:
+        return next((d for d in with_summary if str(d.id) == document_id), None)
+    return with_summary[0] if with_summary else None
+
+
+@router.post("/api/cases/{case_number}/brief/body")
+def brief_body(case_number: str, req: BriefBodyRequest, user: Lawyer, session: DB, make_models: ModelsFactory) -> BriefBodyOut:
+    """변호사 메모를 준비서면 본문 초안으로 풀어 쓴다(변호사만). 저장하지 않고, 변호사가 고쳐 틀에 넣는다."""
+    case = _case(session, case_number)
+    opponent = _opponent(case, req.document_id)
+    if req.document_id and opponent is None:
+        raise HTTPException(404, "요약이 있는 상대방 서면을 찾을 수 없습니다.")
+    names = {role: ", ".join(p.name for p in case.parties if p.role == role) for role in ("원고", "피고")}
+    record = (
+        f"사건 {case.case_number} {case.case_name or ''} / {case.court or ''} / 원고 {names['원고']} / 피고 {names['피고']}"
+        f" / 우리는 {req.side} 측"
+    )
+    claims = [f"{c['point']}: {c['detail']}" for c in (opponent.summary or {}).get("claims", [])] if opponent else []
+    evidence = [
+        f"{evidence_label(e.side, e.number)} {e.title}" + (f"({e.note})" if e.note else "")
+        for e in repo.list_evidence(session, case)
+    ]
+    inputs = BriefInputs(record=record, opponent=claims, evidence=evidence, notes=req.notes)
+    models = make_models()
+    try:
+        draft = write_brief(models, inputs)
+    except (ModelUnavailableError, ExtractionError) as exc:
+        raise HTTPException(503, f"본문 초안을 만들지 못했습니다. {exc}") from exc
+    repo.audit(session, "brief.body_draft", "case", case.id, {"notes_lines": len(note_lines(req.notes)),
+                                                              "opponent": str(opponent.id) if opponent else None})
+    session.commit()
+    return BriefBodyOut(
+        body=body_text(draft),
+        sections=[s.model_dump() for s in draft.sections],
+        open_points=draft.open_points,
+        checks=check(inputs, draft),
+        opponent_document=f"{opponent.document_type} ({opponent.file.name})" if opponent else None,
+        model=getattr(models[0], "model", "?"),
     )
