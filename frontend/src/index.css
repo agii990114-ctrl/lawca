@@ -1389,10 +1389,14 @@ button.secondary:disabled {
   color: var(--muted);
 }
 
-.users-table .actions {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
+/* 작업 칸은 표 칸(table-cell)으로 둔다. display:flex를 주면 칸이 줄에서 빠져 표가 깨진다 */
+.users-table td.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.users-table td.actions > * + * {
+  margin-left: 12px;
 }
 
 .link-button.danger {
@@ -2469,6 +2473,61 @@ button.primary.small {
 
 .body-draft-result > button {
   align-self: flex-start;
+}
+
+/* 판례 후보 */
+
+.citation-needs ol {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.citation-need {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.citation-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.citation-results {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.citation-card {
+  padding: 8px;
+  border-left: 3px solid var(--accent);
+  background: var(--background);
+}
+
+.citation-card p {
+  margin: 4px 0;
+}
+
+.citation-title {
+  display: flex;
+  flex-direction: column;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.file-link {
+  cursor: pointer;
 }
 
 /* 좁은 화면: 대화 목록은 ☰ 버튼으로 여는 덮개로, 미리보기는 전체 화면으로 연다. 기본 규칙보다 뒤에 둬야 한다. */

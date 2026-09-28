@@ -14,7 +14,9 @@ from lawca.agent.brief import evidence_label, number_key
 from lawca.agent.brief_writer import BriefInputs, body_text, check, note_lines, write_brief
 from lawca.api.deps import DB, Lawyer, Worker
 from lawca.api.embedding import EmbedderFactory
-from lawca.api.llm_deps import ModelsFactory
+from lawca.api.llm_deps import LawApiDep, ModelsFactory
+from lawca.citations import find as find_citations
+from lawca.lawapi import LawApiError
 from lawca.api.records import record_out
 from lawca.api.schemas import DeadlineRecordOut
 from lawca.db import repo
@@ -319,6 +321,10 @@ class BriefBodyOut(BaseModel):
     checks: dict
     opponent_document: str | None
     model: str
+    citation_needs: list[dict]
+    """[인용 확인 필요] 자리마다 쟁점과 검색어(순서대로)."""
+    examples_used: list[dict]
+    """문체 참고로 쓴 자료실의 과거 준비서면."""
 
 
 def _opponent(case: Case, document_id: str | None):  # noqa: ANN202
@@ -329,7 +335,9 @@ def _opponent(case: Case, document_id: str | None):  # noqa: ANN202
 
 
 @router.post("/api/cases/{case_number}/brief/body")
-def brief_body(case_number: str, req: BriefBodyRequest, user: Lawyer, session: DB, make_models: ModelsFactory) -> BriefBodyOut:
+def brief_body(
+    case_number: str, req: BriefBodyRequest, user: Lawyer, session: DB, make_models: ModelsFactory, make_embedder: EmbedderFactory
+) -> BriefBodyOut:
     """변호사 메모를 준비서면 본문 초안으로 풀어 쓴다(변호사만). 저장하지 않고, 변호사가 고쳐 틀에 넣는다."""
     case = _case(session, case_number)
     opponent = _opponent(case, req.document_id)
@@ -345,7 +353,9 @@ def brief_body(case_number: str, req: BriefBodyRequest, user: Lawyer, session: D
         f"{evidence_label(e.side, e.number)} {e.title}" + (f"({e.note})" if e.note else "")
         for e in repo.list_evidence(session, case)
     ]
-    inputs = BriefInputs(record=record, opponent=claims, evidence=evidence, notes=req.notes)
+    examples = _style_examples(session, case, claims, make_embedder())
+    inputs = BriefInputs(record=record, opponent=claims, evidence=evidence, notes=req.notes,
+                         examples=tuple(text for _, text in examples))
     models = make_models()
     try:
         draft = write_brief(models, inputs)
@@ -361,4 +371,64 @@ def brief_body(case_number: str, req: BriefBodyRequest, user: Lawyer, session: D
         checks=check(inputs, draft),
         opponent_document=f"{opponent.document_type} ({opponent.file.name})" if opponent else None,
         model=getattr(models[0], "model", "?"),
+        citation_needs=[n.model_dump() for n in draft.citation_needs],
+        examples_used=[{"doc_id": str(doc.id), "title": doc.title} for doc, _ in examples],
     )
+
+
+STYLE_EXAMPLES = 2
+EXAMPLE_CHARS = 1500
+
+
+def _style_examples(session: Session, case: Case, claims: list[str], embedder) -> list[tuple]:  # noqa: ANN001
+    """문체 참고용 과거 준비서면(자료실): 최종본·검토 완료 초안·직접 올린 서면만.
+
+    자료실의 준비서면을 모두 모아, 임베딩이 있으면 상대방 주장과 뜻이 가까운 순으로 고르고 없으면 최근 것부터 고른다.
+    """
+    docs = [
+        d
+        for d in library_store.list_docs(session, limit=200)
+        if d.kind in ("filing", "draft", "other")
+        and ("준비서면" in d.title or (d.draft is not None and d.draft.form_id == "brief"))
+        and library_store.status_label(d) != "검토 전 초안"
+        and d.chunk_count > 0
+    ]
+    texts = {d.id: "\n".join(c.text for c in d.chunks)[:EXAMPLE_CHARS] for d in docs}
+    if embedder is not None and claims and len(docs) > STYLE_EXAMPLES:
+        try:
+            vectors = embedder.embed([" ".join(claims)[:1000], *[texts[d.id] for d in docs]])
+            dot = lambda a, b: sum(x * y for x, y in zip(a, b))  # noqa: E731 - 정규화된 벡터라 내적이 코사인
+            docs = [d for _, d in sorted(zip((dot(vectors[0], v) for v in vectors[1:]), docs), key=lambda t: -t[0])]
+        except Exception:  # noqa: BLE001 - 임베딩을 못 쓰면 최근 순
+            pass
+    return [(d, texts[d.id]) for d in docs[:STYLE_EXAMPLES] if texts[d.id].strip()]
+
+
+# 판례 후보(변호사)
+
+
+class CitationRequest(BaseModel):
+    issue: str = Field(min_length=2, max_length=300)
+    keywords: list[str] = Field(default=[], max_length=8)
+
+
+class CitationOut(BaseModel):
+    query: str
+    """국가법령정보센터에 실제로 보낸 검색어(이름·숫자를 뺀 법률 용어)."""
+    items: list[dict]
+    statutes: list[dict]
+
+
+@router.post("/api/cases/{case_number}/citations")
+def citations(case_number: str, req: CitationRequest, _: Lawyer, session: DB, api: LawApiDep,
+              make_embedder: EmbedderFactory) -> CitationOut:
+    """[인용 확인 필요] 자리의 쟁점으로 대법원 판례 후보를 찾는다. 사건 당사자 이름은 검색어에서 뺀다."""
+    case = _case(session, case_number)
+    forbidden = [p.name for p in case.parties]
+    try:
+        found = find_citations(api, req.issue, req.keywords, forbidden, make_embedder())
+    except LawApiError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    repo.audit(session, "citation.search", "case", case.id, {"query": found.query, "results": len(found.items)})
+    session.commit()
+    return CitationOut(query=found.query, items=found.items, statutes=found.statutes)

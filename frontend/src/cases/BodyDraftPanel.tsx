@@ -1,5 +1,137 @@
 import { useState } from 'react'
-import { makeBriefBody, type BriefBodyResult, type CaseDetail } from '../api'
+import { findCitations, makeBriefBody, type BriefBodyResult, type CaseDetail, type CitationCandidates } from '../api'
+
+const PLACEHOLDER = '[인용 확인 필요]'
+
+// n번째 "[인용 확인 필요]"를 바꾼다(없으면 그대로).
+function replaceNth(text: string, n: number, value: string) {
+  let index = -1
+  for (let i = 0; i <= n; i++) {
+    index = text.indexOf(PLACEHOLDER, index + 1)
+    if (index < 0) return text
+  }
+  return text.slice(0, index) + value + text.slice(index + PLACEHOLDER.length)
+}
+
+// [인용 확인 필요] 한 자리: 쟁점으로 대법원 판례를 찾아 골라 넣는다.
+function CitationNeedRow({
+  caseNumber,
+  index,
+  need,
+  filled,
+  onPick,
+}: {
+  caseNumber: string
+  index: number
+  need: { issue: string; keywords: string[] }
+  filled: string | null
+  onPick: (citation: string) => boolean
+}) {
+  // 본문에 [인용 확인 필요] 자리가 없어 넣지 못한 판례(직접 붙여 넣도록 보여 준다)
+  const [manual, setManual] = useState<string | null>(null)
+  const [found, setFound] = useState<CitationCandidates | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function search() {
+    setBusy(true)
+    setError(null)
+    try {
+      setFound(await findCitations(caseNumber, need))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <li className="citation-need">
+      <div className="citation-head">
+        <span>
+          <strong>{index + 1}.</strong> {need.issue}
+        </span>
+        {filled ? (
+          <span className="status-tag">넣음: {filled}</span>
+        ) : (
+          <button type="button" className="secondary small" onClick={search} disabled={busy}>
+            {busy ? '찾는 중…' : found ? '다시 찾기' : '판례 찾기'}
+          </button>
+        )}
+      </div>
+      {error && <p className="issue error">{error}</p>}
+      {manual && (
+        <p className="issue warning">
+          본문에 [인용 확인 필요] 자리가 없어 넣지 못했습니다. 필요한 곳에 직접 붙여 넣으세요: <strong>{manual}</strong>{' '}
+          <button type="button" className="link-button" onClick={() => navigator.clipboard.writeText(manual).catch(() => undefined)}>
+            복사
+          </button>
+        </p>
+      )}
+      {found && !filled && (
+        <div className="citation-results">
+          <p className="muted small-note">국가법령정보센터에 보낸 검색어: {found.query} (이름·숫자는 뺐습니다)</p>
+          {found.items.length === 0 && <p className="muted small-note">관련 대법원 판례를 찾지 못했습니다. 쟁점을 바꿔 직접 찾아 보세요.</p>}
+          {found.items.map((item) => (
+            <div key={item.id} className="citation-card">
+              <div className="citation-title">
+                <a href={item.url} target="_blank" rel="noreferrer">
+                  {item.citation}
+                </a>
+                <span className="muted small-note">{item.case_name}</span>
+              </div>
+              {item.holdings && (
+                <p className="small-note">
+                  판시사항: {item.holdings.length > 200 ? `${item.holdings.slice(0, 200)}…` : item.holdings}
+                </p>
+              )}
+              {item.holdings.length > 200 && (
+                <details>
+                  <summary className="small-note">판시사항 더 보기</summary>
+                  <p className="small-note">{item.holdings}</p>
+                </details>
+              )}
+              {item.summary && (
+                <details>
+                  <summary className="small-note">판결요지</summary>
+                  <p className="small-note">{item.summary}</p>
+                </details>
+              )}
+              {item.references.length > 0 && <p className="muted small-note">참조조문: {item.references.join(', ')}</p>}
+              <button
+                type="button"
+                className="link-button"
+                onClick={() => {
+                  const text = `(${item.citation} 참조)`
+                  if (!onPick(text)) setManual(text)
+                }}
+              >
+                원문을 확인했음 · 이 판례 넣기
+              </button>
+            </div>
+          ))}
+          {found.statutes.length > 0 && (
+            <p className="muted small-note">
+              관련 조문:{' '}
+              {found.statutes.map((st, i) => (
+                <span key={st.reference}>
+                  {i > 0 && ', '}
+                  {st.url ? (
+                    <a href={st.url} target="_blank" rel="noreferrer">
+                      {st.reference}
+                    </a>
+                  ) : (
+                    st.reference
+                  )}
+                </span>
+              ))}
+            </p>
+          )}
+        </div>
+      )}
+    </li>
+  )
+}
 
 // 준비서면 본문 초안(변호사). 메모를 상대방 주장과 대응시켜 풀어 쓰고, 코드가 먼저 볼 곳을 알려 준다.
 export default function BodyDraftPanel({
@@ -15,6 +147,9 @@ export default function BodyDraftPanel({
   const [documentId, setDocumentId] = useState(filings[0]?.document_id ?? '')
   const [notes, setNotes] = useState('')
   const [result, setResult] = useState<BriefBodyResult | null>(null)
+  // 판례를 넣으며 고쳐 가는 본문과 자리별로 넣은 판례
+  const [draftBody, setDraftBody] = useState('')
+  const [filled, setFilled] = useState<Record<number, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -22,7 +157,10 @@ export default function BodyDraftPanel({
     setBusy(true)
     setError(null)
     try {
-      setResult(await makeBriefBody(detail.case_number, { side, notes, document_id: documentId || null }))
+      const out = await makeBriefBody(detail.case_number, { side, notes, document_id: documentId || null })
+      setResult(out)
+      setDraftBody(out.body)
+      setFilled({})
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -80,6 +218,11 @@ export default function BodyDraftPanel({
             {result.model}
             {result.opponent_document ? ` · 반박 대상: ${result.opponent_document}` : ''} · [인용 확인 필요] {c.placeholders}곳
           </p>
+          {result.examples_used.length > 0 && (
+            <p className="muted small-note">
+              문체 참고(자료실): {result.examples_used.map((e) => e.title).join(', ')} — 사실·금액·증거는 가져오지 않도록 했고, 베껴 온 금액·날짜는 아래 점검에 걸립니다.
+            </p>
+          )}
           {!c.notes_tracked && <p className="issue warning">메모 반영 여부를 확인하지 못했습니다(초안이 메모 번호를 달지 않음). 직접 대조하세요.</p>}
           {c.unused_notes.length > 0 && (
             <div className="issue warning">
@@ -124,7 +267,33 @@ export default function BodyDraftPanel({
               </ul>
             </div>
           )}
-          <button type="button" className="primary small" onClick={() => onUse(result.body)}>
+          {result.citation_needs.length > 0 && (
+            <div className="citation-needs">
+              <strong className="small-note">[인용 확인 필요] 자리의 판례 후보 (대법원, 국가법령정보센터)</strong>
+              <ol>
+                {result.citation_needs.map((need, i) => (
+                  <CitationNeedRow
+                    key={i}
+                    caseNumber={detail.case_number}
+                    index={i}
+                    need={need}
+                    filled={filled[i] ?? null}
+                    onPick={(citation) => {
+                      // 앞에서 이미 바꾼 자리를 빼고 센 순서로 바꾼다. 바꿀 자리가 없으면 false(직접 붙여 넣기 안내)
+                      const before = Object.keys(filled).filter((k) => Number(k) < i).length
+                      const next = replaceNth(draftBody, i - before, citation)
+                      if (next === draftBody) return false
+                      setDraftBody(next)
+                      setFilled((all) => ({ ...all, [i]: citation }))
+                      return true
+                    }}
+                  />
+                ))}
+              </ol>
+              <p className="muted small-note">판례는 넣기 전에 원문을 꼭 확인하세요. 넣지 않은 자리는 [인용 확인 필요]로 남습니다.</p>
+            </div>
+          )}
+          <button type="button" className="primary small" onClick={() => onUse(draftBody)}>
             아래 본문 칸에 넣기
           </button>
         </div>

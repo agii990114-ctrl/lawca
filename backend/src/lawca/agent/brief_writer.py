@@ -33,6 +33,11 @@ SYSTEM = """\
 - sections: "1. 피고 주장의 요지", "2. ○○ 주장에 대한 반박"처럼 번호 붙은 제목과 문단들. 마지막은 "결론" 절.
 - 문단마다 sources에 근거를 적습니다: 쓴 메모 줄 번호("메모1", "메모2"), "상대방 서면", "사건 기록", 또는 증거 표시("갑 제1호증").
 - open_points: 변호사가 확인하거나 보충해야 할 점(근거가 부족한 곳, [인용 확인 필요] 자리 등).
+- citation_needs: 본문에 넣은 "[인용 확인 필요]" 자리마다 순서대로 하나씩 적습니다.
+  issue는 그 자리에 필요한 법적 쟁점을 일반적인 법률 용어로 한 문장(예: "채무 승인에 의한 소멸시효 중단"),
+  keywords는 판례 검색어 2~4개(예: "소멸시효", "채무승인", "중단")입니다.
+  issue와 keywords에는 사람·회사 이름, 금액, 날짜, 사건번호를 넣지 않습니다(외부 판례 검색에 그대로 쓰입니다).
+- [참고 서면]이 있으면 문체와 구성만 참고합니다. 참고 서면의 사실·금액·날짜·증거 번호·당사자는 절대 가져오지 않습니다.
 """
 
 PLACEHOLDER = "[인용 확인 필요]"
@@ -48,9 +53,15 @@ class Section(BaseModel):
     paragraphs: list[Paragraph]
 
 
+class CitationNeed(BaseModel):
+    issue: str = Field(description="필요한 법적 쟁점. 일반적인 법률 용어로, 이름·금액·날짜 없이")
+    keywords: list[str] = Field(description="판례 검색어 2~4개")
+
+
 class BriefDraft(BaseModel):
     sections: list[Section]
     open_points: list[str]
+    citation_needs: list[CitationNeed] = []
 
 
 @dataclass(frozen=True)
@@ -62,6 +73,8 @@ class BriefInputs:
     evidence: list[str]
     """'갑 제1호증 계좌이체 내역(메모)' 형식."""
     notes: str
+    examples: tuple[str, ...] = ()
+    """문체·구성만 참고할 과거 준비서면 발췌(자료실). 점검의 '입력'에는 넣지 않는다(베껴 온 사실을 잡으려고)."""
 
 
 CASE_LAW = re.compile(r"(대법원|고등법원|지방법원)\s*\d{4}\s*\.\s*\d{1,2}\s*\.\s*\d{1,2}\s*\.?\s*(선고|자)|\d{2,4}\s*[가-힣]{1,3}\s*\d{2,}\s*(판결|결정)")
@@ -83,10 +96,16 @@ def note_lines(notes: str) -> list[str]:
     return lines
 
 
-def prompt(inputs: BriefInputs) -> str:
+def prompt(inputs: BriefInputs, with_examples: bool = True) -> str:
     notes = note_lines(inputs.notes)
+    examples = [
+        line
+        for i, text in enumerate(inputs.examples if with_examples else (), start=1)
+        for line in (f"[참고 서면 {i} — 문체·구성만 참고, 사실·금액·날짜·증거는 가져오지 말 것]", text, "")
+    ]
     return "\n".join(
         [
+            *examples,
             "[사건 기록]", inputs.record, "",
             "[상대방 서면 요약]", *([f"- {c}" for c in inputs.opponent] or ["(없음)"]), "",
             "[증거 목록]", *([f"- {e}" for e in inputs.evidence] or ["(없음)"]), "",
@@ -102,7 +121,7 @@ def _compact(text: str) -> str:
 
 def check(inputs: BriefInputs, draft: BriefDraft) -> dict[str, Any]:
     """변호사가 먼저 볼 곳. 값이 비어 있으면 문제를 찾지 못했다는 뜻이다(맞다는 보장은 아니다)."""
-    source_text = _compact(prompt(inputs))
+    source_text = _compact(prompt(inputs, with_examples=False))
     notes_compact = _compact(inputs.notes)
     labels = {_compact(m.group(0)) for e in inputs.evidence for m in [EVIDENCE.search(e)] if m}
     paragraphs = [p for s in draft.sections for p in s.paragraphs]

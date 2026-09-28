@@ -36,6 +36,8 @@ class LibraryDocOut(BaseModel):
     can_delete: bool
     status_label: str | None
     """초안·최종본의 상태: 최종본 | 검토 완료 초안 | 검토 전 초안"""
+    draft_id: str | None
+    """lawca 초안·최종본이면 그 초안. 자료실 표에서 최종본을 올릴 때 쓴다."""
 
 
 class SearchHitOut(BaseModel):
@@ -73,6 +75,7 @@ def doc_out(doc: LibraryDoc, user: User) -> LibraryDocOut:
         embedded=doc.embedded,
         can_delete=can_delete(doc, user),
         status_label=store.status_label(doc),
+        draft_id=str(doc.draft_id) if doc.draft_id else None,
     )
 
 

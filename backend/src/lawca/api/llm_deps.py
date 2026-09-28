@@ -11,6 +11,7 @@ from lawca.agent.graph import ModelsNotConfigured
 from lawca.agent.llm import ChatModel, gemini_models
 from lawca.config import Settings, get_settings
 from lawca.extraction.gemini import Extractor, GeminiExtractor
+from lawca.lawapi import LawApi, LawApiClient
 from lawca.ollama import OllamaChat, OllamaClient, OllamaExtractor
 
 
@@ -45,3 +46,19 @@ def get_models_factory(settings: Annotated[Settings, Depends(get_settings)]) -> 
 
 
 ModelsFactory = Annotated[Callable[[], list[ChatModel]], Depends(get_models_factory)]
+
+
+_law_clients: dict[str, LawApiClient] = {}
+
+
+def get_law_api(settings: Annotated[Settings, Depends(get_settings)]) -> LawApi:
+    """국가법령정보센터 클라이언트. 같은 키면 하나를 계속 써서 캐시를 살린다."""
+    if not settings.law_api_key:
+        raise HTTPException(503, "국가법령정보센터 키가 없습니다. 레포 루트 .env에 LAW_API를 넣으세요.")
+    client = _law_clients.get(settings.law_api_key)
+    if client is None:
+        client = _law_clients[settings.law_api_key] = LawApiClient(settings.law_api_key)
+    return client
+
+
+LawApiDep = Annotated[LawApi, Depends(get_law_api)]

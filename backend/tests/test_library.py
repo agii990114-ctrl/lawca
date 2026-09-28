@@ -212,6 +212,7 @@ def test_final_version_replaces_draft(client, two_cases):  # noqa: F811
     assert [(d["kind"], d["title"], d["status_label"]) for d in docs if d["case_number"]] == [
         ("filing", "사실조회신청서_2026가단51234_최종본", "최종본")
     ]
+    assert [d["draft_id"] for d in docs if d["case_number"]] == [card["draft_id"]]  # 자료실 표에서 다시 올릴 수 있게
     assert search(client, "개설일과 잔액")["hits"][0]["doc"]["status_label"] == "최종본"
     # 초안을 다시 만들어도 최종본은 남는다
     make_draft(client)

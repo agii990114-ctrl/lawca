@@ -6,6 +6,7 @@ import {
   listLibrary,
   reindexLibrary,
   searchLibrary,
+  uploadFinal,
   uploadLibrary,
   type LibraryDoc,
   type LibraryKind,
@@ -241,6 +242,21 @@ export default function LibraryView() {
                     <td>{formatDate(toIso(new Date(d.created_at)))}</td>
                     <td className="muted">{d.embedded ? `조각 ${d.chunk_count}` : '키워드만'}</td>
                     <td className="actions">
+                      {d.draft_id && (
+                        <label className="link-button file-link" title="워드에서 고쳐 실제로 낸 최종본(DOCX·PDF)을 올리면 자료실에 초안 대신 최종본이 들어갑니다">
+                          {d.status_label === '최종본' ? '최종본 다시 올리기' : '최종본 올리기'}
+                          <input
+                            type="file"
+                            accept=".docx,.pdf"
+                            hidden
+                            onChange={(e) => {
+                              const file = e.target.files?.[0]
+                              e.target.value = ''
+                              if (file) run(() => uploadFinal(d.draft_id!, file))
+                            }}
+                          />
+                        </label>
+                      )}
                       {!d.embedded && (
                         <button type="button" className="link-button" onClick={() => run(() => reindexLibrary(d.id))}>
                           다시 색인

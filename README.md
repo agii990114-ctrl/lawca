@@ -126,6 +126,11 @@ compute_designated_deadline(date(2026, 9, 1), Period(7, Unit.DAY)).deadline  # �
   - 문단마다 근거(메모N, 상대방 서면, 갑 제N호증)를 보여 주고, 코드가 반영되지 않은 메모 줄·판례·메모에 없는 법조문·목록에 없는 증거·자료에 없는 금액과 날짜를 표시합니다. 점검은 먼저 볼 곳을 알려 줄 뿐이며 초안은 변호사가 검토합니다.
   - "본문 칸에 넣기"로 틀의 본문에 넣고 고친 뒤 DOCX를 만듭니다. 초안 자체는 저장하지 않습니다(감사 기록에만 남음).
   - 품질 시험: `backend/eval/brief_quality.py`(가상 사건 3건, 제품과 같은 프롬프트·점검).
+  - **문체 참고(자료실)**: 자료실의 과거 준비서면(최종본·검토 완료 초안·직접 올린 서면) 1~2건을 문체·구성 참고로만 넘깁니다. 거기서 베껴 온 금액·날짜·증거는 점검에 걸립니다.
+  - **판례 후보(국가법령정보센터)**: "[인용 확인 필요]" 자리마다 "판례 찾기"로 대법원 판례 후보(판시사항·판결요지·참조조문·원문 링크)를 보고, 원문을 확인한 뒤 "이 판례 넣기"로 인용을 넣습니다. 자동으로 넣지 않습니다.
+    - 밖으로 보내는 것은 법률 용어 검색어뿐이고(사건 당사자 이름·숫자·증거 표시는 코드가 뺌), 보낸 검색어는 화면과 감사 기록에 남습니다.
+    - `.env`에 `LAW_API`(국가법령정보센터 Open API 인증키 OC)가 필요합니다. 키는 화면에 보내지 않고 공개 페이지 주소만 링크합니다.
+    - 검색은 모든 낱말을 담은 판례만 돌려주므로 낱말을 줄여 가며 넓히고(검색 최대 8번), 로컬 bge-m3로 쟁점과 판시사항·판결요지를 비교해 다시 늘어놓습니다(유사도 0.45 미만은 뺌).
 - 테스트용 가상 답변서: `backend/scripts/make_sample_answer.py` → `backend/tests/fixtures/synthetic_answer.pdf`.
 
 ### 기한 목록
@@ -162,7 +167,7 @@ cd backend && uv run python eval/run.py --only scan --limit 3
 
 ## 기술 스택(계획)
 
-Python · FastAPI · LangGraph · Gemini Flash Lite · Ollama(gemma4, bge-m3) · PostgreSQL(pgvector, pg_trgm) · React
+Python · FastAPI · LangGraph · Gemini Flash Lite · Ollama(gemma4, bge-m3) · PostgreSQL(pgvector, pg_trgm) · React · 국가법령정보센터 Open API
 
 ## 로드맵
 

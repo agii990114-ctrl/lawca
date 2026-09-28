@@ -619,6 +619,7 @@ export interface LibraryDoc {
   embedded: boolean
   can_delete: boolean
   status_label: string | null
+  draft_id: string | null
 }
 
 export interface LibrarySearch {
@@ -739,7 +740,28 @@ export interface BriefBodyResult {
   }
   opponent_document: string | null
   model: string
+  citation_needs: { issue: string; keywords: string[] }[]
+  examples_used: { doc_id: string; title: string }[]
 }
+
+export interface CitationCandidates {
+  query: string
+  items: {
+    id: string
+    citation: string
+    case_number: string
+    case_name: string
+    date: string
+    holdings: string
+    summary: string
+    references: string[]
+    url: string
+  }[]
+  statutes: { reference: string; url: string | null }[]
+}
+
+export const findCitations = (n: string, body: { issue: string; keywords: string[] }) =>
+  getJson<CitationCandidates>(`${caseUrl(n)}/citations`, jsonBody('POST', body))
 
 export const makeBriefBody = (n: string, body: { side: '원고' | '피고'; notes: string; document_id: string | null }) =>
   getJson<BriefBodyResult>(`${caseUrl(n)}/brief/body`, jsonBody('POST', body))
