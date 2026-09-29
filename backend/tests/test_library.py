@@ -1,4 +1,4 @@
-"""자료실(RAG) 테스트: 글 뽑기·자르기, 올리기·권한, 키워드+의미 검색, 자동 색인, 채팅 검색 도구."""
+"""자료실(RAG) 테스트: 글 뽑기\xb7자르기, 올리기\xb7권한, 키워드+의미 검색, 자동 색인, 채팅 검색 도구."""
 
 import io
 from pathlib import Path
@@ -64,7 +64,7 @@ def test_chunks_follow_paragraphs_and_overlap():
     assert [p.page for p in chunk_pages(["첫 쪽 글", "둘째 쪽 글"])] == [1, 2]
 
 
-# 올리기·목록·삭제
+# 올리기\xb7목록\xb7삭제
 
 
 def test_upload_docx_and_txt_then_search(client):  # noqa: F811
@@ -163,7 +163,7 @@ def test_chat_search_tool_returns_search_card(client):  # noqa: F811
     assert any(e["type"] == "status" and e["label"].startswith("자료실 검색") for e in events)
 
 
-# 초안·최종본과 제목 검색
+# 초안\xb7최종본과 제목 검색
 
 
 @pytest.fixture
@@ -285,6 +285,77 @@ def test_hwpx_is_read_and_searchable_and_old_hwp_is_explained(client):  # noqa: 
     assert upload.status_code == 201
     found = search(client, "이체 사실을 인정")
     assert any(h["doc"]["title"] == "한글 서면" for h in found["hits"])
-    old = client.post("/api/library", data={"title": "옛 한글", "kind": "filing"},
-                      files={"file": ("옛.hwp", b"\xd0\xcf\x11\xe0", "application/octet-stream")})
-    assert old.status_code == 415 and "예전 형식 HWP" in old.text
+    broken = client.post("/api/library", data={"title": "깨진 한글", "kind": "filing"},
+                         files={"file": ("옛.hwp", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 garbage", "application/octet-stream")})
+    assert broken.status_code == 415 and "HWP 파일을 열 수 없습니다" in broken.text
+    assert client.post("/api/library", data={"title": "x", "kind": "filing"},
+                       files={"file": ("옛.hwp", b"not ole", "application/octet-stream")}).status_code == 415  # OLE 파일이 아니면 형식 거부
+
+
+def hwp_record(tag: int, payload: bytes) -> bytes:
+    import struct
+
+    if len(payload) >= 0xFFF:  # 크기가 4095 이상이면 머리의 크기 칸을 0xFFF로 두고 뒤에 32비트 크기를 붙인다
+        return struct.pack("<II", tag | (0xFFF << 20), len(payload)) + payload
+    return struct.pack("<I", tag | (len(payload) << 20)) + payload
+
+
+def hwp_text(text: str, controls: bool = False) -> bytes:
+    """문단 글 레코드: 확장 제어 블록(16바이트) 하나와 문단 끝(13)을 포함할 수 있다."""
+    import struct
+
+    body = b"".join(struct.pack("<H", ord(c)) for c in text)
+    if controls:
+        body = struct.pack("<H", 2) + b"\x00" * 14 + body  # 구역/단 정의 같은 확장 제어
+    return hwp_record(67, body + struct.pack("<H", 13))
+
+
+def test_hwp_section_text_skips_controls_and_other_records():
+    from lawca.library import hwp_section_paragraphs
+
+    stream = hwp_record(66, b"\x01\x02") + hwp_text("준비서면", controls=True) + hwp_record(68, b"zz") + hwp_text("피고는 인정하였습니다.")
+    assert hwp_section_paragraphs(stream) == ["준비서면", "피고는 인정하였습니다."]
+    big = hwp_record(67, b"".join(bytes([ord(c) & 0xFF, ord(c) >> 8]) for c in "가" * 3000))  # 크기 4095 이상은 확장 길이
+    assert hwp_section_paragraphs(big) == ["가" * 3000]
+
+
+def test_hwp_wrapper_reads_compressed_sections_and_refuses_encrypted(monkeypatch):
+    import zlib
+
+    from lawca import library
+
+    def make_ole(flags: int, sections: dict[str, bytes]):
+        class FakeOle:
+            def __init__(self, _):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def exists(self, name):
+                return name == "FileHeader"
+
+            def openstream(self, name):
+                data = b"HWP Document File".ljust(36, b"\x00") + flags.to_bytes(4, "little") if name == "FileHeader" else sections["/".join(name)]
+                return io.BytesIO(data)
+
+            def listdir(self):
+                return [tuple(k.split("/")) for k in sections]
+
+        return FakeOle
+
+    def deflate(raw: bytes) -> bytes:
+        c = zlib.compressobj(wbits=-15)
+        return c.compress(raw) + c.flush()
+
+    monkeypatch.setattr("olefile.OleFileIO", make_ole(1, {"BodyText/Section1": deflate(hwp_text("둘째")), "BodyText/Section0": deflate(hwp_text("첫째"))}))
+    assert library.extract_pages(b"x", library.HWP_MIME) == ["첫째\n둘째"]  # 구역 번호 순서
+    monkeypatch.setattr("olefile.OleFileIO", make_ole(0b11, {"BodyText/Section0": b""}))
+    with pytest.raises(UnsupportedLibraryFile, match="암호"):
+        library.extract_pages(b"x", library.HWP_MIME)
+    monkeypatch.setattr("olefile.OleFileIO", make_ole(0b100, {"BodyText/Section0": b""}))
+    with pytest.raises(UnsupportedLibraryFile, match="배포용"):
+        library.extract_pages(b"x", library.HWP_MIME)
