@@ -413,20 +413,25 @@ def paragraph_references(
     for number, note in enumerate(notes, start=1):
         if len(_compact_text(note)) < MIN_NOTE_CHARS:
             continue
-        for hit in search(session, note, embedder, limit=10):
-            if hit.doc.kind == "court" or status_label(hit.doc) == "검토 전 초안":
-                continue
-            if side and doc_side(hit.doc) not in (None, side):
-                continue
-            if embedder is not None and getattr(embedder, "meaningful", True) and "semantic" not in hit.matched:
-                continue
-            if hit.chunk.id in picked:
-                picked[hit.chunk.id][0].append(number)
-            elif len(picked) < total:
-                picked[hit.chunk.id] = ([number], hit)
-            else:
-                continue
-            break
+        usable = [
+            hit
+            for hit in search(session, note, embedder, limit=10)
+            if hit.doc.kind != "court"
+            and status_label(hit.doc) != "검토 전 초안"
+            and (not side or doc_side(hit.doc) in (None, side))
+            and not (embedder is not None and getattr(embedder, "meaningful", True) and "semantic" not in hit.matched)
+        ]
+        if not usable:
+            continue
+        # 상위 3개 안에 아직 안 쓴 문단이 있으면 그것을 고른다(메모마다 다른 참고를 얻으려고). 없으면 1위 문단에 묶는다.
+        # 다른 문서의 문단을 먼저, 없으면 같은 문서의 다른 조각을 고른다.
+        used_docs = {h.doc.id for _, h in picked.values()}
+        top = usable[:3]
+        fresh = next((h for h in top if h.doc.id not in used_docs), None) or next((h for h in top if h.chunk.id not in picked), None)
+        if fresh is not None and len(picked) < total:
+            picked[fresh.chunk.id] = ([number], fresh)
+        elif usable[0].chunk.id in picked:
+            picked[usable[0].chunk.id][0].append(number)
     return list(picked.values())
 
 
