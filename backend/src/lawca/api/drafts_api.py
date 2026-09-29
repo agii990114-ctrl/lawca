@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from lawca.agent import brief_flow
+from lawca.agent import brief_flow, prefiling
 from lawca.api.deps import DB, Lawyer, Worker
 from lawca.api.embedding import EmbedderFactory
 from lawca.db import repo
@@ -125,6 +126,13 @@ def list_drafts(_: Worker, session: DB, case_number: str | None = None, form_id:
 @router.get("/api/drafts/{draft_id}/detail")
 def draft_detail(draft_id: str, _: Worker, session: DB) -> DraftDetail:
     return detail_out(_load(session, draft_id))
+
+
+@router.get("/api/drafts/{draft_id}/check")
+def draft_check(draft_id: str, _: Worker, session: DB) -> dict[str, Any]:
+    """제출 전 점검(빈칸·사건 정보·증거·검토·기한). 올린 최종본이 있으면 그것을 본다."""
+    today = datetime.now(ZoneInfo("Asia/Seoul")).date()
+    return prefiling.check_draft(session, _load(session, draft_id), today)
 
 
 @router.post("/api/drafts/{draft_id}/citation")

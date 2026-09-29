@@ -1432,6 +1432,20 @@ button.secondary:disabled {
   margin-top: 8px;
 }
 
+.prefiling {
+  margin: 12px 0;
+}
+
+.prefiling h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.issue.info {
+  background: var(--surface-soft, #f3f4f6);
+  color: var(--muted, #555);
+}
+
 /* 캘린더 */
 
 .calendar-view {

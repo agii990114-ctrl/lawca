@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   downloadUrl,
+  getDraftCheck,
   getDraftDetail,
   listCases,
   listDrafts,
@@ -9,6 +10,7 @@ import {
   type CaseListItem,
   type DraftDetail,
   type DraftListItem,
+  type PrefilingCheck,
 } from '../api'
 import { useUser } from '../auth/UserContext'
 import CaseMaterials from '../cases/CaseMaterials'
@@ -26,11 +28,31 @@ function StatusTag({ label }: { label: DraftListItem['status_label'] }) {
   return <span className={`review-badge${label === '검토 전' ? '' : ' done'}`}>{label}</span>
 }
 
+const LEVEL_CLASS = { error: 'error', warn: 'warning', ok: 'ok', info: 'info' } as const
+
+// 제출 전 점검: 빈칸, 사건 정보, 증거, 검토, 기한을 코드로 확인한 결과.
+function PrefilingPanel({ check }: { check: PrefilingCheck }) {
+  return (
+    <section className="prefiling">
+      <h3>
+        제출 전 점검 <span className={`review-badge${check.ready ? ' done' : ''}`}>{check.ready ? '고칠 것 없음' : '고칠 것 있음'}</span>
+      </h3>
+      <p className="muted small-note">{check.checked}을 기준으로 봤습니다. 표현과 법리는 담당 변호사가 직접 검토하세요.</p>
+      {check.items.map((item, i) => (
+        <p key={i} className={`issue ${LEVEL_CLASS[item.level]}`}>
+          {item.text}
+        </p>
+      ))}
+    </section>
+  )
+}
+
 // 초안 한 건의 내용과 할 일(내려받기·최종본 올리기·검토 완료·판례 넣기).
 function DraftPanel({ id, onChanged, onOpenFile }: { id: string; onChanged: () => void; onOpenFile: (fileId: string, name: string) => void }) {
   const isLawyer = useUser().role === 'lawyer'
   const [detail, setDetail] = useState<DraftDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [check, setCheck] = useState<PrefilingCheck | null>(null)
   const [busy, setBusy] = useState(false)
 
   const load = useCallback(() => {
@@ -40,6 +62,9 @@ function DraftPanel({ id, onChanged, onOpenFile }: { id: string; onChanged: () =
         setError(null)
       })
       .catch((e: Error) => setError(e.message))
+    getDraftCheck(id)
+      .then(setCheck)
+      .catch(() => setCheck(null))
   }, [id])
 
   useEffect(load, [load])
@@ -116,6 +141,7 @@ function DraftPanel({ id, onChanged, onOpenFile }: { id: string; onChanged: () =
         </label>
       </div>
       {error && <p className="issue error">{error}</p>}
+      {check && <PrefilingPanel check={check} />}
 
       {detail.fields.length > 0 && (
         <dl className="draft-fields">

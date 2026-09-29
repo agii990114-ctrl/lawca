@@ -796,5 +796,18 @@ export function listDrafts(params: { case_number?: string; form_id?: string } = 
 
 export const getDraftDetail = (id: string) => getJson<DraftDetail>(`/api/drafts/${id}/detail`)
 
+export interface PrefilingItem {
+  level: 'error' | 'warn' | 'ok' | 'info'
+  text: string
+}
+
+export interface PrefilingCheck {
+  items: PrefilingItem[]
+  ready: boolean
+  checked: string
+}
+
+export const getDraftCheck = (id: string) => getJson<PrefilingCheck>(`/api/drafts/${id}/check`)
+
 export const insertCitation = (id: string, index: number, citation: string) =>
   getJson<DraftDetail>(`/api/drafts/${id}/citation`, jsonBody('POST', { index, citation }))
