@@ -65,6 +65,8 @@ class FakeEmbedder:
     """글자 두 개씩(바이그램)을 1024칸에 흩어 담는 가짜 임베딩. 겹치는 글자가 많을수록 가깝다."""
 
     model = "fake-embed"
+    meaningful = False
+    """뜻을 이해하지 못하는 대용품. 참고 문단 검색이 '뜻이 비슷한 것만' 규칙을 적용하지 않는다."""
 
     def __init__(self, unavailable: bool = False) -> None:
         self.unavailable = unavailable

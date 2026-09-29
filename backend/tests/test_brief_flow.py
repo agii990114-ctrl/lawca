@@ -235,6 +235,46 @@ def test_too_short_memo_is_asked_again(client, lawyer):  # noqa: F811
     assert draft_card(events)["form_id"] == "brief"
 
 
+def test_memo_that_contradicts_our_side_or_uses_criminal_terms_is_asked_again(client, lawyer):  # noqa: F811
+    model = FakeChatModel(tasks=[("draft", "x")], form_request=("brief", CASE, {"our_side": "원고"}), draft=DRAFT)
+    q = question_of(start(client, model))
+    again = question_of(events_of(resume(client, q["job_id"], {"notes": "피고는 증여가 아니므로 무죄입니다."})))
+    assert [f["key"] for f in again["fields"]] == ["notes"] and "무죄" in again["errors"][0]
+    other = question_of(events_of(resume(client, again["job_id"], {"notes": "피고는 증여가 아니므로 이체금을 갚아야 합니다"})))
+    assert "'피고는 …'으로 시작" in other["errors"][0]  # 우리 측은 원고인데 피고 주어로 시작
+    ok = events_of(resume(client, other["job_id"], {"notes": "피고 주장: 증여 → 반박: 통장 표시가 대여금(갑1)\n" + NOTES}))
+    assert draft_card(ok)["form_id"] == "brief"
+
+
+def test_notes_the_model_could_not_read_leave_the_body_blank(client, lawyer):  # noqa: F811
+    unreadable = BriefDraft(
+        sections=[Section(heading="1. 결론", paragraphs=[Paragraph(text="청구는 기각되어야 합니다.", sources=["메모1"])])],
+        open_points=["메모1은 주장으로 읽히지 않아 반영하지 않았습니다"],
+    )
+    model = FakeChatModel(tasks=[("draft", "x")], form_request=("brief", CASE, {"our_side": "원고", "notes": "증여 아님: 통장 표시가 대여금(갑1)"}), draft=unreadable)
+    events = start(client, model, "2026가단51234 준비서면")
+    card = draft_card(events)
+    assert card["brief"]["sections"] == [] and "읽지 못해" in card["brief"]["note"]
+
+
+def test_reference_search_uses_only_same_side_filings_and_meaningful_semantic_hits(client, answer_chat, db):  # noqa: F811
+    from tests.fakes import FakeEmbedder
+
+    upload_doc(client, "a.docx", docx_bytes("준비서면\n증여 아님 통장 표시 대여금 이체\n원고 소송대리인 (서명 또는 날인)"), title="원고 준비서면 A")
+    upload_doc(client, "b.docx", docx_bytes("준비서면\n증여 아님 통장 표시 대여금 이체\n피고 소송대리인 (서명 또는 날인)"), title="서면 B")
+    notes = ["증여 아님 통장 표시 대여금 이체"]
+    with db() as session:
+        titles = lambda side: [h.doc.title for _, h in paragraph_references(session, notes, FakeEmbedder(), side=side)]  # noqa: E731
+        assert titles("원고") == ["원고 준비서면 A"] and titles("피고") == ["서면 B"]  # 제목·서명란으로 편을 가른다
+        assert len(titles(None)) == 1  # 메모 한 줄에 문단 하나
+
+        class Meaningful(FakeEmbedder):
+            meaningful = True
+
+        # 임베딩 없이 올린 문서는 낱말만 겹친다. 뜻을 아는 임베딩으로 찾을 때는 참고로 쓰지 않는다.
+        assert paragraph_references(session, notes, Meaningful()) == [] or all("semantic" in h.matched for _, h in paragraph_references(session, notes, Meaningful()))
+
+
 def test_reply_says_so_when_no_reference_was_found(client, answer_chat, db):  # noqa: F811
     make_user(db, "lawyer1", "lawyer")
     login(client, "lawyer1")  # 자료실에 참고할 과거 서면이 없다

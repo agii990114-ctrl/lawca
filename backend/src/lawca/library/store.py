@@ -387,12 +387,26 @@ MIN_NOTE_CHARS = 10
 """이보다 짧은 메모(예: "결론: 청구 인용")는 참고 문단을 찾지 않는다. 낱말 몇 개만 겹친 엉뚱한 서면이 붙는 것을 막는다."""
 
 
+def doc_side(doc: LibraryDoc) -> str | None:
+    """서면이 어느 쪽(원고/피고) 것인지. lawca 초안은 우리 측 값, 그 밖에는 제목, 그다음 서명란으로 알아낸다. 모르면 None."""
+    if doc.draft is not None:
+        return (doc.draft.values or {}).get("our_side")
+    in_title = set(re.findall(r"원고|피고", doc.title))
+    if len(in_title) == 1:
+        return in_title.pop()
+    text = "\n".join(c.text for c in doc.chunks)
+    signed = re.findall(r"(원고|피고)[^\n]{0,40}?(?:소송대리인|서명|\(인\)|날인)", text)
+    return signed[-1] if signed else None
+
+
 def paragraph_references(
-    session: Session, notes: list[str], embedder: Embedder | None, *, total: int = 5
+    session: Session, notes: list[str], embedder: Embedder | None, *, side: str | None = None, total: int = 5
 ) -> list[tuple[list[int], Hit]]:
     """메모(줄)마다 자료실에서 비슷한 과거 문단을 하나씩 찾는다. 같은 문단이 여러 메모에 맞으면 메모 번호를 함께 붙인다.
 
     - 법원 문서(이 사건의 받은 문서 등)와 검토 전 lawca 초안은 참고로 쓰지 않는다.
+    - side(우리 측)가 주어지면 반대편(원고↔피고) 서면은 참고로 쓰지 않는다. 어느 쪽인지 모르는 서면은 쓴다.
+    - 뜻을 이해하는 임베딩이면 뜻이 비슷하다고 나온 것(semantic)만 쓴다. 낱말만 겹친 결과는 엉뚱한 서면일 수 있다.
     - 돌려주는 것은 ([메모 번호…], 검색 결과) 쌍이고, 서로 다른 문단 최대 total개다.
     """
     picked: dict[int, tuple[list[int], Hit]] = {}
@@ -401,6 +415,10 @@ def paragraph_references(
             continue
         for hit in search(session, note, embedder, limit=10):
             if hit.doc.kind == "court" or status_label(hit.doc) == "검토 전 초안":
+                continue
+            if side and doc_side(hit.doc) not in (None, side):
+                continue
+            if embedder is not None and getattr(embedder, "meaningful", True) and "semantic" not in hit.matched:
                 continue
             if hit.chunk.id in picked:
                 picked[hit.chunk.id][0].append(number)

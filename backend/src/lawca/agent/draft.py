@@ -17,6 +17,7 @@ from typing import Any
 from pydantic import BaseModel, Field as PydanticField
 from sqlalchemy.orm import Session
 
+from lawca.agent import brief_flow
 from lawca.agent.llm import ChatModel, Turn, with_fallback
 from lawca.db import repo
 from lawca.db.models import Case
@@ -193,6 +194,12 @@ def apply_answers(
         elif cleaned:
             values[key] = cleaned
             provided[key] = cleaned
+    if form.id == "brief" and values.get("notes"):
+        problem = brief_flow.memo_problem(values["notes"], values.get("our_side", "원고"))
+        if problem:
+            errors.append(problem)
+            values.pop("notes")
+            provided.pop("notes", None)
     return {**draft, "values": values, "provided": provided, "errors": errors}
 
 

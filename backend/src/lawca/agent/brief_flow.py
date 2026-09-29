@@ -80,7 +80,7 @@ def prepare(session: Session, case: Case | None, values: dict[str, str], embedde
         f"사건 {values.get('case_number', '')} {values.get('case_name', '')} / {values.get('court', '')}"
         f" / 원고 {values.get('plaintiffs', '')} / 피고 {values.get('defendants', '')} / 우리는 {side} 측"
     )
-    hits = library_store.paragraph_references(session, notes, embedder)
+    hits = library_store.paragraph_references(session, notes, embedder, side=side)
     references = tuple(
         Reference(
             number=i,
@@ -97,6 +97,33 @@ def prepare(session: Session, case: Case | None, values: dict[str, str], embedde
 
 def write(models: list[ChatModel], prepared: Prepared) -> BriefDraft:
     return write_brief(models, prepared.inputs)
+
+
+CRIMINAL = re.compile(r"무죄|유죄|기소|형사|처벌|징역|벌금")
+DISPUTE = re.compile(r"주장|반박|부인|다투|항변|불과|인정|시인|자인|자백|허위|근거|사실|[갑을]\s*\d")
+UNREADABLE = re.compile(r"읽히지|반영하지|반영되지|이해하지|알 수 없|불명확|모호")
+
+
+def memo_problem(notes: str, side: str) -> str | None:
+    """메모가 서면 본문의 재료로 쓸 수 없어 보이면 다시 받을 이유. 문제가 없으면 None. 판단은 코드가 한다."""
+    other = "피고" if side == "원고" else "원고"
+    subject = re.compile(rf"^\W*(?:{other})(?:는|은|가|이)?\s")
+    for i, line in enumerate(note_lines(notes), start=1):
+        if CRIMINAL.search(line):
+            return f"메모{i}에 형사 용어(무죄·기소 등)가 있습니다. 민사 서면에 쓸 주장으로 다시 적어 주세요."
+        if subject.match(line) and not DISPUTE.search(line):
+            return (
+                f"메모{i}가 '{other}는 …'으로 시작하는데, 우리 측은 {side}입니다. 우리 측 주장이면 주어를 바꾸고, "
+                f"상대방 주장이면 '{other} 주장: …(반박: …)'처럼 적어 주세요."
+            )
+    return None
+
+
+def unreadable_notes(notes: str, draft: BriefDraft) -> bool:
+    """모델이 '읽히지 않아 반영하지 않았다'고 밝힌 메모가 모든 메모에 해당하는지."""
+    numbers = set(range(1, len(note_lines(notes)) + 1))
+    flagged = {int(n) for point in draft.open_points if UNREADABLE.search(point) for n in re.findall(r"메모\s*(\d+)", point)}
+    return bool(numbers) and numbers <= flagged
 
 
 def _cited_evidence(session: Session, case: Case | None, side: str, body: str) -> list[EvidenceItem]:

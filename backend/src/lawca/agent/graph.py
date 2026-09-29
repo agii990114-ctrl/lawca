@@ -340,7 +340,12 @@ def _render_brief(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
             models = deps.make_models()
             brief = brief_flow.write(models, prepared)
             model = getattr(models[0], "model", None)
-            write({"type": "status", "id": f"{step}-write", "label": f"본문 초안 완성 · {model}", "state": "done"})
+            if brief_flow.unreadable_notes(values["notes"], brief):
+                brief = None
+                note = "메모를 서면 주장으로 읽지 못해 본문은 빈칸으로 두었습니다. 메모를 '주장: 근거(증거)' 꼴로 구체적으로 적어 다시 요청해 주세요."
+                write({"type": "status", "id": f"{step}-write", "label": "메모를 읽지 못해 본문 생략", "state": "error"})
+            else:
+                write({"type": "status", "id": f"{step}-write", "label": f"본문 초안 완성 · {model}", "state": "done"})
         except (ModelsNotConfigured, ModelUnavailableError, ExtractionError) as exc:
             note = f"본문 초안을 만들지 못해 본문은 빈칸으로 두었습니다. {exc}"
             write({"type": "status", "id": f"{step}-write", "label": "본문 초안 실패", "state": "error"})
