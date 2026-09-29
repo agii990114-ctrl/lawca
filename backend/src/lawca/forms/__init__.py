@@ -34,6 +34,8 @@ class Field:
     remember: bool = False
     options: tuple[str, ...] = ()
     help: str | None = None
+    min_length: int = 0
+    """글자 수의 하한(공백 제외). 뜻 없는 짧은 입력을 걸러 다시 묻는다."""
 
     def is_required(self, values: dict[str, str]) -> bool:
         if self.required:
@@ -66,6 +68,7 @@ def _field(raw: dict[str, Any]) -> Field:
         remember=raw.get("remember", False),
         options=tuple(raw.get("options", ())),
         help=raw.get("help"),
+        min_length=raw.get("min_length", 0),
     )
 
 
@@ -122,6 +125,8 @@ def clean_answer(f: Field, value: str) -> tuple[str | None, str | None]:
         return (LATER, None) if f.allow_later else (None, f"{f.label}은(는) 나중에 입력할 수 없습니다.")
     if not value:
         return None, None
+    if f.min_length and len("".join(value.split())) < f.min_length:
+        return None, f"{f.label}이(가) 너무 짧습니다. 주장과 근거를 {f.min_length}자 이상, 한 줄에 한 가지씩 적어 주세요."
     if f.type == "date":
         normalized = normalize_date(value)
         try:

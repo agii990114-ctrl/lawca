@@ -365,6 +365,7 @@ def references(
     *,
     exclude_draft_id: uuid.UUID | str | None = None,
     limit: int = 3,
+    reviewed_only: bool = False,
 ) -> list[dict[str, object]]:
     """서식을 쓸 때 참고할 과거 서면. 서식 이름으로 찾고 법원 문서와 지금 만드는 초안은 뺀다.
 
@@ -374,7 +375,9 @@ def references(
     hits = [
         h
         for h in search(session, form_name, embedder, limit=12)
-        if h.doc.kind in REFERENCE_KINDS and (exclude is None or str(h.doc.draft_id) != exclude)
+        if h.doc.kind in REFERENCE_KINDS
+        and (exclude is None or str(h.doc.draft_id) != exclude)
+        and not (reviewed_only and status_label(h.doc) == "검토 전 초안")
     ]
     terms = terms_of(form_name)
     return [hit_item(h, terms) for h in hits[:limit]]

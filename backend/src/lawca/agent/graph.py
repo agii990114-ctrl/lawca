@@ -159,7 +159,10 @@ def _references(deps: Deps, draft: dict[str, Any], exclude: str | None = None) -
     if form is None:
         return []
     try:
-        return library_store.references(deps.session, form.name, deps.make_embedder(), exclude_draft_id=exclude)
+        # 준비서면은 본문을 쓸 때 검토 전 초안을 참고하지 않는다. 미리 보여 주는 목록도 같은 기준으로 맞춘다.
+        return library_store.references(
+            deps.session, form.name, deps.make_embedder(), exclude_draft_id=exclude, reviewed_only=form.id == "brief"
+        )
     except Exception:  # noqa: BLE001
         deps.session.rollback()
         log.exception("참고 서면 검색 실패")
@@ -352,7 +355,13 @@ def _render_brief(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
     lines = [f"{_separator(state)}**준비서면** 초안을 만들었습니다."]
     if brief is not None:
         notes = len(brief_flow.note_lines(values.get("notes", "")))
-        lines.append(f"메모 {notes}줄을 자료실의 참고 문단 {len(prepared.hits)}건과 함께 풀어 본문 초안을 썼습니다.")
+        if prepared.hits:
+            lines.append(f"메모 {notes}줄을 자료실의 참고 문단 {len(prepared.hits)}건과 함께 풀어 본문 초안을 썼습니다.")
+        else:
+            lines.append(
+                f"자료실에 비슷한 과거 문단이 없어 **참고 없이** 메모 {notes}줄과 상대방 서면 요약만으로 본문 초안을 썼습니다. "
+                "과거 준비서면을 자료실에 올리거나, 초안을 검토 완료로 표시하거나 최종본을 올리면 다음부터 참고합니다."
+            )
         flags = brief_flow.check_summary(card["brief"]["checks"])
         lines.append(f"확인할 것: {flags}." if flags else "자동 점검에서 걸린 것은 없습니다. 표현과 법리는 직접 검토하세요.")
     if note:

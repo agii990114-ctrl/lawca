@@ -222,3 +222,31 @@ def test_reference_use_is_detected_by_code_and_particles_are_not_names():
     result = check(inputs, draft)
     assert result["references_used"] == [1]  # 모델이 참고1을 적지 않아도 문장을 살린 것을 코드가 찾는다
     assert result["foreign_names"] == []  # "피고에게"의 조사는 이름이 아니다
+
+
+def test_too_short_memo_is_asked_again(client, lawyer):  # noqa: F811
+    model = FakeChatModel(tasks=[("draft", "x")], form_request=("brief", CASE, {"our_side": "원고"}), draft=DRAFT)
+    q = question_of(start(client, model))
+    assert [f["key"] for f in q["fields"]] == ["notes"]
+    again = question_of(events_of(resume(client, q["job_id"], {"notes": "그래서 그렇습니다"})))  # 뜻 없는 짧은 메모
+    assert [f["key"] for f in again["fields"]] == ["notes"] and "너무 짧습니다" in again["errors"][0]
+    assert again["question_id"] != q["question_id"]
+    events = events_of(resume(client, again["job_id"], {"notes": NOTES}))
+    assert draft_card(events)["form_id"] == "brief"
+
+
+def test_reply_says_so_when_no_reference_was_found(client, answer_chat, db):  # noqa: F811
+    make_user(db, "lawyer1", "lawyer")
+    login(client, "lawyer1")  # 자료실에 참고할 과거 서면이 없다
+    model = FakeChatModel(tasks=[("draft", "x")], form_request=("brief", CASE, {"our_side": "원고", "notes": NOTES}), draft=DRAFT)
+    events = start(client, model, "2026가단51234 준비서면")
+    text = "".join(e["delta"] for e in events if e["type"] == "text")
+    assert "**참고 없이**" in text and "참고 문단 0건" not in text and "**참고한 문서**" not in text
+    assert draft_card(events)["references"] == []
+
+
+def test_question_lists_only_references_the_draft_would_use(client, lawyer):  # noqa: F811
+    make_brief_draft(client)  # 검토 전 준비서면 초안이 자료실에 들어간다(참고로는 쓰지 않는다)
+    model = FakeChatModel(tasks=[("draft", "x")], form_request=("brief", CASE, {"our_side": "원고"}), draft=DRAFT)
+    q = question_of(start(client, model))
+    assert [r["title"] for r in q["references"]] == ["예전 원고 준비서면"]  # 검토 전 초안은 빠진다
