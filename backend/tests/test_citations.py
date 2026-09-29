@@ -5,7 +5,6 @@ import pytest
 
 from lawca.api.app import app
 from lawca.api.llm_deps import get_law_api
-from lawca.agent.brief_writer import BriefDraft, BriefInputs, CitationNeed, Paragraph, Section, check
 from lawca.citations import find, sanitize
 from lawca.lawapi import LawApiClient, Precedent, PrecedentHit, citation_text, statute_url
 from tests.conftest import login, make_user
@@ -116,33 +115,3 @@ def test_citations_endpoint_is_for_lawyers_and_strips_names(client, answer_chat,
     assert "홍길동" not in out["query"] and "홍길동" not in " ".join(q for q, _ in fake_law.queries)
     assert out["items"][0]["citation"] == "대법원 2025. 6. 5. 선고 2025다210470 판결"
     assert out["items"][0]["url"].startswith("https://www.law.go.kr/")
-
-
-# 문체 참고(자료실)
-
-
-def test_style_examples_are_used_but_copied_facts_are_flagged(client, answer_chat, db):  # noqa: F811
-    from tests.test_library import docx_bytes, upload_doc
-
-    upload_doc(client, "예전_준비서면.docx", docx_bytes("준 비 서 면\n1. 피고 주장의 요지\n피고는 증여라고 주장하나 9,999만 원은 대여금입니다."),
-               title="예전 원고 준비서면")
-    draft = BriefDraft(
-        sections=[Section(heading="1. 반박", paragraphs=[Paragraph(text="9,999만 원은 대여금입니다. [인용 확인 필요]", sources=["메모1"])])],
-        open_points=[],
-        citation_needs=[CitationNeed(issue="대여 사실 증명", keywords=["대여", "증명"])],
-    )
-    model = FakeChatModel(draft=draft)
-    use_models(model)
-    make_user(db, "lawyer1", "lawyer")
-    login(client, "lawyer1")
-    out = client.post("/api/cases/2026가단51234/brief/body", json={"side": "원고", "notes": "- 증여 아님"}).json()
-    assert [e["title"] for e in out["examples_used"]] == ["예전 원고 준비서면"]
-    assert "참고 서면 1" in model.seen_turns[-1][-1].text
-    assert out["checks"]["amounts_not_in_inputs"] == ["9,999만 원"]  # 참고 서면에서 베껴 온 금액은 잡힌다
-    assert out["citation_needs"] == [{"issue": "대여 사실 증명", "keywords": ["대여", "증명"]}]
-
-
-def test_check_ignores_examples_as_inputs():
-    inputs = BriefInputs(record="r", opponent=[], evidence=[], notes="- a", examples=("예전 서면: 7,777만 원",))
-    draft = BriefDraft(sections=[Section(heading="h", paragraphs=[Paragraph(text="7,777만 원", sources=["메모1"])])], open_points=[])
-    assert check(inputs, draft)["amounts_not_in_inputs"] == ["7,777만 원"]

@@ -30,7 +30,7 @@ def docx_text(data: bytes) -> str:
 
 def test_forms_are_defined():
     assert set(load_forms()) == {"certificate_of_finality", "certificate_of_service", "address_correction",
-                                 "fact_inquiry", "execution_clause"}
+                                 "fact_inquiry", "execution_clause", "brief"}
 
 
 def test_find_form_by_alias():

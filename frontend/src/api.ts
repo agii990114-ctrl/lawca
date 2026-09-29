@@ -113,6 +113,7 @@ export interface DraftCardData {
   fields: { label: string; value: string }[]
   blanks: string[]
   references?: SearchCardItem[]
+  brief?: BriefPayload
 }
 
 export const LATER = '__later__'
@@ -147,6 +148,10 @@ export interface SearchCardItem {
   case_number: string | null
   created_at: string
   matched: ('keyword' | 'semantic')[]
+  /** 준비서면 초안이 참고한 문서일 때: 참고 번호, 대응한 메모 번호, 본문에 반영했는지 */
+  number?: number
+  note_no?: number | null
+  used?: boolean
 }
 
 export interface DeadlineResult {
@@ -709,41 +714,6 @@ export const updateEvidence = (
 
 export const deleteEvidence = (id: string) => send(`/api/evidence/${id}`, { method: 'DELETE' })
 
-export interface BriefResult {
-  draft_id: string
-  file_id: string
-  filename: string
-  size: number
-  evidence: string[]
-  body_empty: boolean
-}
-
-export const makeBrief = (
-  n: string,
-  body: { side: '원고' | '피고'; title: string; agent: string; body: string; evidence_ids: string[]; attachments: string[] },
-) => getJson<BriefResult>(`${caseUrl(n)}/brief`, jsonBody('POST', body))
-
-export interface BriefBodyResult {
-  body: string
-  sections: { heading: string; paragraphs: { text: string; sources: string[] }[] }[]
-  open_points: string[]
-  checks: {
-    notes_tracked: boolean
-    unused_notes: { number: number; text: string }[]
-    case_law: string[]
-    statutes_not_in_notes: string[]
-    unknown_evidence: string[]
-    amounts_not_in_inputs: string[]
-    dates_not_in_inputs: string[]
-    paragraphs_without_source: number
-    placeholders: number
-  }
-  opponent_document: string | null
-  model: string
-  citation_needs: { issue: string; keywords: string[] }[]
-  examples_used: { doc_id: string; title: string }[]
-}
-
 export interface CitationCandidates {
   query: string
   items: {
@@ -763,5 +733,67 @@ export interface CitationCandidates {
 export const findCitations = (n: string, body: { issue: string; keywords: string[] }) =>
   getJson<CitationCandidates>(`${caseUrl(n)}/citations`, jsonBody('POST', body))
 
-export const makeBriefBody = (n: string, body: { side: '원고' | '피고'; notes: string; document_id: string | null }) =>
-  getJson<BriefBodyResult>(`${caseUrl(n)}/brief/body`, jsonBody('POST', body))
+// 초안(서식·준비서면)
+
+export interface BriefChecks {
+  notes_tracked: boolean
+  unused_notes: { number: number; text: string }[]
+  case_law: string[]
+  statutes_not_in_notes: string[]
+  unknown_evidence: string[]
+  amounts_not_in_inputs: string[]
+  dates_not_in_inputs: string[]
+  paragraphs_without_source: number
+  placeholders: number
+  references_used: number[]
+  foreign_names: string[]
+}
+
+export interface BriefPayload {
+  sections: { heading: string; paragraphs: { text: string; sources: string[] }[] }[]
+  open_points: string[]
+  citation_needs: { issue: string; keywords: string[] }[]
+  checks: BriefChecks | null
+  references: SearchCardItem[]
+  opponent_document: string | null
+  model: string | null
+  note: string | null
+  filled: Record<string, string>
+  evidence: string[]
+}
+
+export interface DraftListItem {
+  id: string
+  form_id: string
+  form_name: string
+  case_number: string | null
+  case_name: string | null
+  filename: string
+  file_id: string
+  size: number
+  created_by: string | null
+  created_at: string
+  reviewed_by: string | null
+  reviewed_at: string | null
+  final_file_id: string | null
+  final_filename: string | null
+  status_label: '최종본' | '검토 완료' | '검토 전'
+  blanks: string[]
+}
+
+export interface DraftDetail extends DraftListItem {
+  fields: { label: string; value: string }[]
+  brief: BriefPayload | null
+}
+
+export function listDrafts(params: { case_number?: string; form_id?: string } = {}) {
+  const query = new URLSearchParams()
+  if (params.case_number) query.set('case_number', params.case_number)
+  if (params.form_id) query.set('form_id', params.form_id)
+  return getJson<DraftListItem[]>(`/api/drafts?${query}`)
+}
+
+export const getDraftDetail = (id: string) => getJson<DraftDetail>(`/api/drafts/${id}/detail`)
+
+export const insertCitation = (id: string, index: number, citation: string) =>
+  getJson<DraftDetail>(`/api/drafts/${id}/citation`, jsonBody('POST', { index, citation }))

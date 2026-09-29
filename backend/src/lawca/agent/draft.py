@@ -148,6 +148,8 @@ def build_question(draft: dict[str, Any], session: Session) -> dict[str, Any] | 
             "errors": draft.get("errors", []),
         }
     missing = missing_fields(form, draft["values"])
+    if form.id == "brief" and draft.get("role") != "lawyer":
+        missing = [f for f in missing if f.key != "notes"]  # 본문 초안은 변호사만 받는다
     if not missing and not draft.get("errors"):
         return None
     return {

@@ -27,6 +27,7 @@ from lawca.api.documents_api import router as documents_router
 from lawca.api.embedding import EmbedderFactory
 from lawca.api.library_api import router as library_router
 from lawca.api.cases_api import router as cases_router
+from lawca.api.drafts_api import router as drafts_router
 from lawca.library import UnsupportedLibraryFile, detect_mime
 from lawca.library import store as library_store
 from lawca.api.users import router as users_router
@@ -72,6 +73,7 @@ app.include_router(calendar_router)
 app.include_router(documents_router)
 app.include_router(library_router)
 app.include_router(cases_router)
+app.include_router(drafts_router)
 
 UNITS = {u.value: u for u in Unit}
 
@@ -226,6 +228,7 @@ def _respond(
     make_models: Callable[[], list[ChatModel]],
     actor: str,
     make_embedder: Callable[[], Any] = lambda: None,
+    role: str = "clerk",
 ) -> StreamingResponse:
     """그래프 이벤트를 SSE로 흘려보내고, 끝나면 답변 메시지와 작업(Job) 상태를 저장한다.
 
@@ -252,6 +255,7 @@ def _respond(
                 on_document=on_document,
                 make_models=make_models,
                 job_id=job_id,
+                role=role,
                 make_embedder=make_embedder,
             )
             try:
@@ -318,6 +322,7 @@ def chat(
         make_models,
         user.username,
         make_embedder,
+        user.role,
     )
 
 
@@ -372,6 +377,7 @@ def resume_job(
         make_models,
         user.username,
         make_embedder,
+        user.role,
     )
 
 

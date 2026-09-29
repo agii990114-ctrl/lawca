@@ -123,44 +123,6 @@ def test_evidence_from_summary_and_crud(client, answer_chat):  # noqa: F811
     assert client.get("/api/cases", params={"q": "홍길동"}).json()[0]["evidence"] == 4
 
 
-# 준비서면 틀
-
-
-def test_brief_frame(client, answer_chat):  # noqa: F811
-    url = "/api/cases/2026가단51234"
-    a1 = client.post(f"{url}/evidence", json={"side": "갑", "title": "차용증 사본"}).json()
-    a2 = client.post(f"{url}/evidence", json={"side": "갑", "title": "계좌이체 내역"}).json()
-    b1 = client.post(f"{url}/evidence", json={"side": "을", "title": "대화 내역"}).json()
-
-    assert client.post(f"{url}/brief", json={"side": "원고", "evidence_ids": [b1["id"]]}).status_code == 422
-    res = client.post(
-        f"{url}/brief",
-        json={"side": "원고", "title": "준비서면", "agent": "법무법인 가상 담당변호사 김가상",
-              "body": "1. 피고 주장의 요지\n피고는 증여라고 주장합니다.\n\n2. 반박\n차용증과 계좌이체 내역이 있습니다.",
-              "evidence_ids": [a2["id"], a1["id"]], "attachments": ["소송위임장 1통"], "filed_on": "2026-09-28"},
-    )
-    assert res.status_code == 200
-    body = res.json()
-    assert body["evidence"] == ["갑 제1호증", "갑 제2호증"] and body["body_empty"] is False
-    text = docx_text(client.get(f"/api/files/{body['file_id']}/content").content)
-    assert "준 비 서 면" in text and "사        건    2026가단51234  대여금" in text
-    assert "위 사건에 관하여 원고 소송대리인은 다음과 같이 변론을 준비합니다." in text
-    assert "1. 피고 주장의 요지\n피고는 증여라고 주장합니다." in text
-    assert "1. 갑 제1호증    차용증 사본" in text and "1. 갑 제2호증    계좌이체 내역" in text
-    assert "1. 위 입증방법    각 1통" in text and "1. 소송위임장 1통" in text
-    assert "2026. 9. 28." in text and "법무법인 가상 담당변호사 김가상" in text
-
-    # 본문을 비우면 자리표시, 대리인이 없으면 당사자 이름
-    empty = client.post(f"{url}/brief", json={"side": "원고"}).json()
-    text = docx_text(client.get(f"/api/files/{empty['file_id']}/content").content)
-    assert empty["body_empty"] is True and "[본문: 담당 변호사 작성]" in text and "원고   홍길동" in text
-    assert "위 사건에 관하여 원고는 다음과 같이" in text
-    assert "입  증  방  법" not in text
-    # 자료실에는 사건의 가장 최근 준비서면 초안 하나만
-    assert len([d for d in client.get("/api/library", params={"kind": "draft"}).json() if d["title"].startswith("준비서면")]) == 1
-    assert client.get(f"{url}").json()["facts"]["our_side"] == "원고"
-
-
 # 준비서면 본문 초안(변호사)
 
 from lawca.agent.brief_writer import BriefDraft, BriefInputs, Paragraph, Section, body_text, check, note_lines  # noqa: E402
@@ -199,26 +161,3 @@ def test_note_lines_and_checks():
     assert result["case_law"] and result["statutes_not_in_notes"] == ["민법 제168조"]
     assert result["unknown_evidence"] == ["갑 제9호증"] and result["amounts_not_in_inputs"] == ["500만 원"]
     assert body_text(DRAFT).startswith("1. 피고 주장의 요지\n피고는 증여라고 주장합니다.\n\n2. 증여 주장에 대한 반박\n")
-
-
-def test_brief_body_is_for_lawyers_and_uses_case_inputs(client, answer_chat, db):  # noqa: F811
-    url = "/api/cases/2026가단51234"
-    client.post(f"{url}/evidence", json={"side": "갑", "title": "계좌이체 내역", "note": "받는 통장 표시 '대여금'"})
-    body = {"side": "원고", "notes": NOTES}
-    assert client.post(f"{url}/brief/body", json=body).status_code == 403  # 사무원
-
-    model = FakeChatModel(draft=DRAFT)
-    use_models(model)
-    make_user(db, "lawyer1", "lawyer")
-    login(client, "lawyer1")
-    res = client.post(f"{url}/brief/body", json=body)
-    assert res.status_code == 200
-    out = res.json()
-    assert out["opponent_document"].startswith("답변서") and out["model"] == "fake"
-    assert [n["number"] for n in out["checks"]["unused_notes"]] == [3]
-    assert out["body"].startswith("1. 피고 주장의 요지") and out["open_points"] == ["소멸시효 법리 보충"]
-    # 모델에 간 글: 사건 기록·상대방 주장·증거(메모 포함)·번호 붙은 메모
-    sent = model.seen_turns[-1][-1].text
-    assert "우리는 원고 측" in sent and "대여가 아니라 증여" in sent
-    assert "갑 제1호증 계좌이체 내역(받는 통장 표시 '대여금')" in sent and "메모3: 소멸시효 중단" in sent
-    assert client.post(f"{url}/brief/body", json=body | {"document_id": "nope"}).status_code == 404

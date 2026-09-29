@@ -378,3 +378,29 @@ def references(
     ]
     terms = terms_of(form_name)
     return [hit_item(h, terms) for h in hits[:limit]]
+
+
+def paragraph_references(
+    session: Session, notes: list[str], embedder: Embedder | None, *, total: int = 5
+) -> list[tuple[int, Hit]]:
+    """메모(줄)마다 자료실에서 비슷한 과거 문단을 하나씩 찾는다(서로 다른 문서로, 최대 total개).
+
+    법원 문서(상대방 서면 등 이 사건의 받은 문서)와 검토 전 lawca 초안은 참고로 쓰지 않는다.
+    돌려주는 것은 (메모 번호, 검색 결과) 쌍이다.
+    """
+    picked: list[tuple[int, Hit]] = []
+    seen: set[uuid.UUID] = set()
+    for number, note in enumerate(notes, start=1):
+        if len(picked) >= total:
+            break
+        for hit in search(session, note, embedder, limit=10):
+            if hit.doc.id in seen or hit.doc.kind == "court" or status_label(hit.doc) == "검토 전 초안":
+                continue
+            seen.add(hit.doc.id)
+            picked.append((number, hit))
+            break
+    return picked
+
+
+def docs_for_draft(session: Session, draft_id: uuid.UUID) -> list[LibraryDoc]:
+    return list(session.scalars(select(LibraryDoc).where(LibraryDoc.draft_id == draft_id)))

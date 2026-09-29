@@ -12,6 +12,7 @@ import {
   type QuestionField,
 } from '../api'
 import { useUser } from '../auth/UserContext'
+import BriefView from '../drafts/BriefView'
 import { ReferenceList } from './QueryCards'
 
 export type Answer = (jobId: string, answers: Record<string, string>, summary: string) => Promise<void>
@@ -212,7 +213,7 @@ export function DraftCard({ data }: { data: DraftCardData }) {
       {data.blanks.length > 0 && (
         <p className="issue warning">빈칸으로 둔 항목: {data.blanks.join(', ')}. 제출 전에 채워야 합니다.</p>
       )}
-      {data.references && <ReferenceList items={data.references} />}
+      {data.references && <ReferenceList items={data.references} open={!!data.brief} title={data.brief ? '참고한 문서' : '참고할 과거 서면'} />}
       <dl className="draft-fields">
         {data.fields.map((f) => (
           <div key={f.label}>
@@ -221,6 +222,18 @@ export function DraftCard({ data }: { data: DraftCardData }) {
           </div>
         ))}
       </dl>
+      {data.brief && (
+        <details className="references">
+          <summary>본문 근거 · 점검 결과 · 판례 후보</summary>
+          <BriefView
+            draftId={data.draft_id}
+            brief={data.brief}
+            caseNumber={data.case_number}
+            canInsertCitation={isLawyer}
+            showReferences={false}
+          />
+        </details>
+      )}
       {status?.final_file_id && (
         <p className="final-line">
           최종본:{' '}

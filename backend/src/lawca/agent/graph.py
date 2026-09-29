@@ -27,6 +27,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from sqlalchemy.orm import Session
 
+from lawca.agent import brief_flow
 from lawca.agent import draft as drafting
 from lawca.agent.brief import summarize_brief, summary_out
 from lawca.agent.documents import analyze, summarize
@@ -59,6 +60,8 @@ class Deps:
     on_document: Callable[[DocumentOut], str | None]
     make_models: Callable[[], list[ChatModel]]
     job_id: Any = None
+    role: str = "clerk"
+    """요청한 사용자의 역할(clerk|lawyer). 준비서면 본문 초안은 변호사만 받는다."""
     make_embedder: Callable[[], Any] = lambda: None
     """자료실 색인·검색에 쓰는 임베딩 모델(없으면 키워드만)."""
 
@@ -79,7 +82,8 @@ HELP_TEXT = (
     "- **기한 조회**: \"이번 주 기한 알려줘\", \"2026가단51234 기한은?\"\n"
     "- **사건 찾기**: \"홍길동 사건 찾아줘\"\n"
     "- **만료일 계산**: \"9월 15일에 판결문을 받았으면 항소기한은?\"\n"
-    "- **서식 작성**: 확정증명원 신청서, 송달증명원 신청서, 주소보정서, 사실조회신청서, 집행문부여 신청서. 예: \"2026가단51234 확정증명원 신청서 만들어 줘\""
+    "- **서식 작성**: 확정증명원 신청서, 송달증명원 신청서, 주소보정서, 사실조회신청서, 집행문부여 신청서. 예: \"2026가단51234 확정증명원 신청서 만들어 줘\"\n"
+    "- **준비서면 작성**: \"준비서면 작성해줘\"라고 하면 사건을 묻고, 변호사 메모와 자료실의 과거 서면으로 본문 초안을 씁니다(본문은 변호사만 받습니다)."
 )
 
 OUT_OF_SCOPE_TEXT = (
@@ -287,6 +291,7 @@ def draft_parse(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
         models = []  # 모델 없이도 서식 이름·사건번호는 규칙으로 찾는다
     request = _task(state)["request"] or state["message"]
     draft = drafting.parse_request(models, request, _history(state), deps.session, deps.today)
+    draft["role"] = deps.role
     form = drafting.load_forms().get(draft.get("form_id") or "")
     label = f"서식 요청 파악: {form.name if form else '서식 미정'}" + (f" · {draft['case_number']}" if draft.get("case_number") else "")
     write({"type": "status", "id": step, "label": label, "state": "done"})
@@ -311,7 +316,57 @@ def after_ask(state: ChatState, config: RunnableConfig) -> str:
     return "draft_ask" if drafting.build_question(state["draft"] or {}, _deps(config).session) else "draft_render"
 
 
+def _render_brief(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
+    """준비서면: 자료실에서 비슷한 과거 문단을 찾고(RAG), 변호사 메모를 풀어 본문 초안을 쓰고, DOCX 틀로 저장한다."""
+    write = get_stream_writer()
+    deps = _deps(config)
+    draft = state["draft"] or {}
+    values = draft["values"]
+    case = repo.get_case(deps.session, draft["case_number"]) if draft.get("case_number") else None
+    step = f"render-{state['index']}"
+    lawyer = deps.role == "lawyer" and bool(values.get("notes", "").strip())
+    brief = None
+    model = None
+    note = None
+    if lawyer:
+        write({"type": "status", "id": f"{step}-rag", "label": "자료실에서 비슷한 과거 문단 찾는 중", "state": "running"})
+        prepared = brief_flow.prepare(deps.session, case, values, deps.make_embedder())
+        write({"type": "status", "id": f"{step}-rag", "label": f"자료실에서 참고 문단 {len(prepared.hits)}건 찾음", "state": "done"})
+        write({"type": "status", "id": f"{step}-write", "label": "본문 초안 쓰는 중", "state": "running"})
+        try:
+            models = deps.make_models()
+            brief = brief_flow.write(models, prepared)
+            model = getattr(models[0], "model", None)
+            write({"type": "status", "id": f"{step}-write", "label": f"본문 초안 완성 · {model}", "state": "done"})
+        except (ModelsNotConfigured, ModelUnavailableError, ExtractionError) as exc:
+            note = f"본문 초안을 만들지 못해 본문은 빈칸으로 두었습니다. {exc}"
+            write({"type": "status", "id": f"{step}-write", "label": "본문 초안 실패", "state": "error"})
+    else:
+        prepared = brief_flow.prepare(deps.session, case, {**values, "notes": ""}, None)
+        note = "본문 초안은 변호사만 받을 수 있어 본문은 빈칸으로 두었습니다. 변호사에게 요청하거나 워드에서 직접 쓰세요."
+    write({"type": "status", "id": step, "label": "초안 저장 중", "state": "running"})
+    card = brief_flow.finish(deps.session, prepared, brief, model=model, note=note, job_id=deps.job_id)
+    _index(deps, lambda embedder: library_store.index_draft(deps.session, card["draft_id"], embedder))
+    write({"type": "status", "id": step, "label": f"초안 완성: {card['filename']}", "state": "done"})
+
+    lines = [f"{_separator(state)}**준비서면** 초안을 만들었습니다."]
+    if brief is not None:
+        notes = len(brief_flow.note_lines(values.get("notes", "")))
+        lines.append(f"메모 {notes}줄을 자료실의 참고 문단 {len(prepared.hits)}건과 함께 풀어 본문 초안을 썼습니다.")
+        flags = brief_flow.check_summary(card["brief"]["checks"])
+        lines.append(f"확인할 것: {flags}." if flags else "자동 점검에서 걸린 것은 없습니다. 표현과 법리는 직접 검토하세요.")
+    if note:
+        lines.append(note)
+    lines.append("근거와 점검 결과, 판례 후보는 **초안** 탭에서 볼 수 있습니다. 담당 변호사 검토 후 제출하세요.")
+    text = lines[0] + "\n\n" + "\n\n".join(lines[1:]) + brief_flow.reference_list_text(card["references"])
+    write({"type": "text", "delta": text})
+    write({"type": "card", "card": card})
+    return {"index": state["index"] + 1, "draft": None}
+
+
 def draft_render(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
+    if (state["draft"] or {}).get("form_id") == "brief":
+        return _render_brief(state, config)
     write = get_stream_writer()
     deps = _deps(config)
     step = f"render-{state['index']}"

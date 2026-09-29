@@ -167,11 +167,21 @@ export function SearchCard({ query, items, onShowLibrary }: { query: string; ite
 }
 
 // 서식을 쓸 때 참고할 과거 서면(같은 서식). 접었다 펼 수 있다.
-export function ReferenceList({ items, open = false }: { items: SearchCardItem[]; open?: boolean }) {
+export function ReferenceList({
+  items,
+  open = false,
+  title = '참고할 과거 서면',
+}: {
+  items: SearchCardItem[]
+  open?: boolean
+  title?: string
+}) {
   if (items.length === 0) return null
   return (
     <details className="references" open={open}>
-      <summary>참고할 과거 서면 {items.length}건 (자료실)</summary>
+      <summary>
+        {title} {items.length}건 (자료실)
+      </summary>
       <ul className="search-list">
         {items.map((item) => (
           <li key={item.doc_id}>
@@ -181,6 +191,12 @@ export function ReferenceList({ items, open = false }: { items: SearchCardItem[]
                 {item.title}
               </a>
               {item.status_label && <span className="status-tag">{item.status_label}</span>}
+              {item.number !== undefined && (
+                <span className="status-tag">
+                  참고{item.number}
+                  {item.note_no ? ` · 메모${item.note_no}에 대응` : ''} · {item.used ? '본문에 반영' : '본문에는 인용하지 않음'}
+                </span>
+              )}
             </div>
             <p className="search-snippet">{item.snippet}</p>
             <p className="muted small-note">{[item.case_number, item.created_at].filter(Boolean).join(' · ')}</p>
@@ -207,7 +223,7 @@ export function BriefSummaryCard({
         </h3>
         {data.case_number && (
           <button type="button" className="link-button" onClick={() => onShowCase(data.case_number!)}>
-            사건 화면에서 보기
+            초안 화면에서 사건 자료 보기
           </button>
         )}
       </header>

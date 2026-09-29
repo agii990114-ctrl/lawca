@@ -72,9 +72,10 @@ def _field(raw: dict[str, Any]) -> Field:
 @cache
 def load_forms() -> dict[str, Form]:
     raw = tomllib.loads(resources.files("lawca.forms").joinpath("data/forms.toml").read_text(encoding="utf-8"))
-    common = tuple(_field(f) for f in raw["common"])
+    common_all = {f["key"]: _field(f) for f in raw["common"]}
     forms = {}
     for item in raw["form"]:
+        common = tuple(common_all[k] for k in item.get("common", common_all))
         forms[item["id"]] = Form(
             id=item["id"],
             name=item["name"],
