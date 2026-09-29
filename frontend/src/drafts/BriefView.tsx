@@ -209,7 +209,7 @@ export default function BriefView({
                 </a>{' '}
                 <span className="muted small-note">
                   {r.kind_label}
-                  {r.status_label ? ` · ${r.status_label}` : ''} · {r.note_no ? `메모${r.note_no}에 대응` : '문체 참고'} ·{' '}
+                  {r.status_label ? ` · ${r.status_label}` : ''} · {r.note_nos?.length ? `${r.note_nos.map((n) => `메모${n}`).join('·')}에 대응` : '문체 참고'} ·{' '}
                   {r.used ? '본문에 반영' : '검색됨(본문에는 인용하지 않음)'}
                 </span>
                 <p className="small-note">{r.snippet}</p>

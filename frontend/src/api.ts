@@ -151,6 +151,7 @@ export interface SearchCardItem {
   /** 준비서면 초안이 참고한 문서일 때: 참고 번호, 대응한 메모 번호, 본문에 반영했는지 */
   number?: number
   note_no?: number | null
+  note_nos?: number[]
   used?: boolean
 }
 

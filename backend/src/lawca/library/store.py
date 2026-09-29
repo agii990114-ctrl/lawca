@@ -383,26 +383,37 @@ def references(
     return [hit_item(h, terms) for h in hits[:limit]]
 
 
+MIN_NOTE_CHARS = 10
+"""이보다 짧은 메모(예: "결론: 청구 인용")는 참고 문단을 찾지 않는다. 낱말 몇 개만 겹친 엉뚱한 서면이 붙는 것을 막는다."""
+
+
 def paragraph_references(
     session: Session, notes: list[str], embedder: Embedder | None, *, total: int = 5
-) -> list[tuple[int, Hit]]:
-    """메모(줄)마다 자료실에서 비슷한 과거 문단을 하나씩 찾는다(서로 다른 문서로, 최대 total개).
+) -> list[tuple[list[int], Hit]]:
+    """메모(줄)마다 자료실에서 비슷한 과거 문단을 하나씩 찾는다. 같은 문단이 여러 메모에 맞으면 메모 번호를 함께 붙인다.
 
-    법원 문서(상대방 서면 등 이 사건의 받은 문서)와 검토 전 lawca 초안은 참고로 쓰지 않는다.
-    돌려주는 것은 (메모 번호, 검색 결과) 쌍이다.
+    - 법원 문서(이 사건의 받은 문서 등)와 검토 전 lawca 초안은 참고로 쓰지 않는다.
+    - 돌려주는 것은 ([메모 번호…], 검색 결과) 쌍이고, 서로 다른 문단 최대 total개다.
     """
-    picked: list[tuple[int, Hit]] = []
-    seen: set[uuid.UUID] = set()
+    picked: dict[int, tuple[list[int], Hit]] = {}
     for number, note in enumerate(notes, start=1):
-        if len(picked) >= total:
-            break
+        if len(_compact_text(note)) < MIN_NOTE_CHARS:
+            continue
         for hit in search(session, note, embedder, limit=10):
-            if hit.doc.id in seen or hit.doc.kind == "court" or status_label(hit.doc) == "검토 전 초안":
+            if hit.doc.kind == "court" or status_label(hit.doc) == "검토 전 초안":
                 continue
-            seen.add(hit.doc.id)
-            picked.append((number, hit))
+            if hit.chunk.id in picked:
+                picked[hit.chunk.id][0].append(number)
+            elif len(picked) < total:
+                picked[hit.chunk.id] = ([number], hit)
+            else:
+                continue
             break
-    return picked
+    return list(picked.values())
+
+
+def _compact_text(text: str) -> str:
+    return re.sub(r"\s+", "", text)
 
 
 def docs_for_draft(session: Session, draft_id: uuid.UUID) -> list[LibraryDoc]:

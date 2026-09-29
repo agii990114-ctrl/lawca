@@ -81,7 +81,7 @@ class Reference:
     doc_id: str
     title: str
     text: str
-    note_no: int | None = None
+    note_nos: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -127,7 +127,7 @@ def prompt(inputs: BriefInputs, with_references: bool = True) -> str:
         line
         for ref in (inputs.references if with_references else ())
         for line in (
-            f"[참고 문단 {ref.number}" + (f" — 메모{ref.note_no}에 대응" if ref.note_no else "")
+            f"[참고 문단 {ref.number}" + (f" — {'·'.join(f'메모{n}' for n in ref.note_nos)}에 대응" if ref.note_nos else "")
             + " — 논리·표현만 참고. 사실·금액·날짜·이름·증거는 이 사건 자료로 바꿀 것]",
             ref.text,
             "",

@@ -45,8 +45,8 @@ class Prepared:
     values: dict[str, str]
     inputs: BriefInputs
     opponent: Document | None
-    hits: list[tuple[int, Any]]
-    """(메모 번호, 자료실 검색 결과)"""
+    hits: list[tuple[list[int], Any]]
+    """([메모 번호…], 자료실 검색 결과)"""
 
 
 def paragraphs(body: str) -> list[str]:
@@ -87,9 +87,9 @@ def prepare(session: Session, case: Case | None, values: dict[str, str], embedde
             doc_id=str(hit.doc.id),
             title=hit.doc.title,
             text=hit.chunk.text[:REFERENCE_CHARS],
-            note_no=note_no,
+            note_nos=tuple(note_nos),
         )
-        for i, (note_no, hit) in enumerate(hits, start=1)
+        for i, (note_nos, hit) in enumerate(hits, start=1)
     )
     inputs = BriefInputs(record=record, opponent=claims, evidence=evidence, notes=values.get("notes", ""), references=references)
     return Prepared(case=case, values=values, inputs=inputs, opponent=opponent, hits=hits)
@@ -143,9 +143,9 @@ def render_docx(session: Session, case: Case | None, values: dict[str, str], sec
 def _reference_items(prepared: Prepared, used: list[int]) -> list[dict[str, Any]]:
     """참고한 문서 목록(채팅·초안 화면). used는 본문이 실제로 인용한 참고 번호."""
     items = []
-    for i, (note_no, hit) in enumerate(prepared.hits, start=1):
+    for i, (note_nos, hit) in enumerate(prepared.hits, start=1):
         item = library_store.hit_item(hit, library_store.terms_of(prepared.inputs.notes))
-        items.append({**item, "number": i, "note_no": note_no, "used": i in used})
+        items.append({**item, "number": i, "note_no": note_nos[0], "note_nos": note_nos, "used": i in used})
     return items
 
 
@@ -225,7 +225,8 @@ def reference_list_text(references: list[dict[str, Any]]) -> str:
         return ""
     lines = ["", "", "**참고한 문서** (자료실)", ""]
     for ref in references:
-        where = f"메모{ref['note_no']}에 대응" if ref.get("note_no") else "문체 참고"
+        nos = ref.get("note_nos") or ([ref["note_no"]] if ref.get("note_no") else [])
+        where = f"{'·'.join(f'메모{n}' for n in nos)}에 대응" if nos else "문체 참고"
         used = "본문에 반영" if ref.get("used") else "검색됨(본문에는 인용하지 않음)"
         label = f"[{ref['title']}](/api/files/{ref['file_id']}/content)"
         status = f" · {ref['status_label']}" if ref.get("status_label") else ""

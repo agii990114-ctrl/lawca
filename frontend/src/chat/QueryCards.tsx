@@ -194,7 +194,8 @@ export function ReferenceList({
               {item.number !== undefined && (
                 <span className="status-tag">
                   참고{item.number}
-                  {item.note_no ? ` · 메모${item.note_no}에 대응` : ''} · {item.used ? '본문에 반영' : '본문에는 인용하지 않음'}
+                  {item.note_nos?.length ? ` · ${item.note_nos.map((n) => `메모${n}`).join('·')}에 대응` : ''} ·{' '}
+                  {item.used ? '본문에 반영' : '본문에는 인용하지 않음'}
                 </span>
               )}
             </div>

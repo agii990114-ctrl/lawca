@@ -98,12 +98,12 @@ def test_lawyer_asks_case_then_info_then_drafts_with_references(client, lawyer):
 
     # 모델에는 메모에 대응한 참고 문단이 갔고, 이 사건 자료도 함께 갔다
     sent = model.seen_turns[-1][-1].text
-    assert "[참고 문단 1 — 메모1에 대응" in sent and "받는 통장 표시를 '대여금'" in sent
+    assert "[참고 문단 1 — 메모1·메모2에 대응" in sent and "받는 통장 표시를 '대여금'" in sent
     assert "우리는 원고 측" in sent and "갑 제1호증 계좌이체 내역" in sent and "대여가 아니라 증여" in sent
 
     # 채팅 답변: 참고한 문서 목록
     text = "".join(e["delta"] for e in events if e["type"] == "text")
-    assert "**참고한 문서** (자료실)" in text and "예전 원고 준비서면" in text and "메모1에 대응" in text and "본문에 반영" in text
+    assert "**참고한 문서** (자료실)" in text and "예전 원고 준비서면" in text and "메모1·메모2에 대응" in text and "본문에 반영" in text
     assert "메모 3줄을 자료실의 참고 문단 1건과 함께" in text
     assert "참고 문서에서 온 이름" in text and "자료에 없는 금액" in text  # 베껴 온 이름·금액은 점검에 걸린다
     ref = card["references"][0]
@@ -191,8 +191,8 @@ def test_insert_citation_into_nth_placeholder(client, lawyer, db):  # noqa: F811
 def test_check_flags_foreign_names_and_reports_used_references():
     inputs = BriefInputs(
         record="사건 / 원고 홍길동 / 피고 김철수", opponent=[], evidence=[], notes="- 증여 아님",
-        references=(Reference(1, "d1", "예전", "원고 박가상은 피고 이가나에게 빌려주었고 원고 주식회사 가온캐피탈이 청구합니다.", 1),
-                    Reference(2, "d2", "다른", "원고 홍길동은", 1)),
+        references=(Reference(1, "d1", "예전", "원고 박가상은 피고 이가나에게 빌려주었고 원고 주식회사 가온캐피탈이 청구합니다.", (1,)),
+                    Reference(2, "d2", "다른", "원고 홍길동은", (1,))),
     )
     draft = BriefDraft(
         sections=[Section(heading="h", paragraphs=[Paragraph(text="원고 박가상은 피고 김철수에게. 원고 주식회사 가온캐피탈이 홍길동", sources=["메모1", "참고1"])])],
@@ -206,14 +206,14 @@ def test_check_flags_foreign_names_and_reports_used_references():
 def test_reference_search_skips_court_documents_and_unreviewed_drafts(client, answer_chat, db):  # noqa: F811
     upload_doc(client, "서면.docx", docx_bytes("준비서면\n대여금 반환 청구 증여 아님"), title="직접 올린 서면")
     with db() as session:
-        hits = paragraph_references(session, ["대여금 반환 증여", "답변서 소멸시효 완성"], None)
+        hits = paragraph_references(session, ["대여금 반환 청구 증여 아님", "답변서 소멸시효 완성 주장"], None)
         titles = [h.doc.title for _, h in hits]
     assert titles == ["직접 올린 서면"]  # 이 사건의 답변서(법원 문서)와 검토 전 초안은 참고로 쓰지 않는다
 
 
 def test_reference_use_is_detected_by_code_and_particles_are_not_names():
-    ref = Reference(1, "d1", "예전", "증여라면 이체 당시 그와 같이 표시할 이유가 없습니다. 피고에게 청구합니다.", 1)
-    other = Reference(2, "d2", "다른", "임차인은 통상의 손모에 대하여 원상회복 의무를 지지 않습니다.", 1)
+    ref = Reference(1, "d1", "예전", "증여라면 이체 당시 그와 같이 표시할 이유가 없습니다. 피고에게 청구합니다.", (1,))
+    other = Reference(2, "d2", "다른", "임차인은 통상의 손모에 대하여 원상회복 의무를 지지 않습니다.", (1,))
     inputs = BriefInputs(record="사건 / 원고 홍길동 / 피고 김철수", opponent=[], evidence=[], notes="- 증여 아님", references=(ref, other))
     draft = BriefDraft(
         sections=[Section(heading="h", paragraphs=[Paragraph(text="만약 증여라면 이체 당시 그와 같이 표시할 이유가 없습니다.", sources=["메모1"])])],
@@ -250,3 +250,13 @@ def test_question_lists_only_references_the_draft_would_use(client, lawyer):  # 
     model = FakeChatModel(tasks=[("draft", "x")], form_request=("brief", CASE, {"our_side": "원고"}), draft=DRAFT)
     q = question_of(start(client, model))
     assert [r["title"] for r in q["references"]] == ["예전 원고 준비서면"]  # 검토 전 초안은 빠진다
+
+
+def test_reference_search_shares_a_paragraph_across_notes_and_skips_short_ones(client, answer_chat, db):  # noqa: F811
+    from tests.fakes import FakeEmbedder
+
+    upload_doc(client, "서면.docx", docx_bytes("준비서면\n증여 아님 통장 표시 대여금 이체 변제 약속 문자 채무 승인"), title="직접 올린 서면")
+    notes = ["증여 아님 통장 표시 대여금 이체", "문자는 변제 약속 채무 승인 통장 표시", "결론: 청구 인용"]
+    with db() as session:
+        found = paragraph_references(session, notes, FakeEmbedder())
+    assert [(nos, h.doc.title) for nos, h in found] == [([1, 2], "직접 올린 서면")]  # 같은 문단이 두 메모에 대응, 짧은 결론 메모는 찾지 않음
