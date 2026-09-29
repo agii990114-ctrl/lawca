@@ -210,7 +210,49 @@ def test_session_lifetime_follows_the_setting(anon, db, monkeypatch):
     monkeypatch.setattr(get_settings(), "session_hours", 2)
     make_user(db, "worker1", "clerk")
     response = login(anon, "worker1")
-    assert "Max-Age=7200" in response.headers["set-cookie"]  # 쿠키 수명
+    assert "Max-Age=604800" in response.headers["set-cookie"]  # 쿠키는 절대 상한(7일)까지 두고, 실제 만료는 서버가 정한다
     with db() as session:
         expires = session.scalars(select(UserSession)).one().expires_at
     assert timedelta(hours=1, minutes=59) < expires - datetime.now(UTC) <= timedelta(hours=2)  # 서버가 정한 만료
+
+
+def test_session_slides_while_used_and_has_absolute_limit(anon, db, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from lawca.config import get_settings
+    from lawca.db.models import UserSession
+
+    monkeypatch.setattr(get_settings(), "session_hours", 2)
+    make_user(db, "worker1", "clerk")
+    login(anon, "worker1")
+
+    def row(**changes):
+        with db() as session:
+            item = session.scalars(select(UserSession)).one()
+            for key, value in changes.items():
+                setattr(item, key, value)
+            session.commit()
+            return item.expires_at, item.created_at
+
+    now = datetime.now(UTC)
+    row(expires_at=now + timedelta(minutes=30))  # 쓰지 않고 1시간 반이 지난 상태
+    assert anon.get("/api/auth/me").status_code == 200
+    expires, _ = row()
+    assert timedelta(hours=1, minutes=59) < expires - datetime.now(UTC) <= timedelta(hours=2)  # 쓰면 2시간으로 밀린다
+
+    row(expires_at=now - timedelta(minutes=1))  # 쓰지 않아 만료
+    assert anon.get("/api/auth/me").status_code == 401
+
+    login(anon, "worker1")
+    with db() as session:
+        item = session.scalars(select(UserSession).order_by(UserSession.created_at.desc())).first()
+        item.created_at = now - timedelta(days=7) + timedelta(minutes=30)  # 절대 상한 30분 전
+        item.expires_at = now + timedelta(minutes=10)
+        session.commit()
+    assert anon.get("/api/auth/me").status_code == 200
+    with db() as session:
+        item = session.scalars(select(UserSession).order_by(UserSession.created_at.desc())).first()
+        assert item.expires_at - datetime.now(UTC) <= timedelta(minutes=31)  # 상한을 넘겨 늘어나지 않는다
+        item.created_at = now - timedelta(days=8)
+        session.commit()
+    assert anon.get("/api/auth/me").status_code == 401  # 절대 상한 지남

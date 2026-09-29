@@ -15,7 +15,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from lawca.api.schemas import DocumentOut
-from lawca.auth import hash_password, new_token, session_ttl, token_hash, verify_password
+from lawca.auth import SLIDE_STEP, hash_password, new_token, session_max, session_ttl, token_hash, verify_password
 from lawca.db.models import (
     AuditLog,
     Case,
@@ -124,7 +124,7 @@ _DUMMY_HASH = hash_password("lawca-dummy-password-1")
 def start_session(session: Session, user: User) -> str:
     """로그인 세션을 만들고 쿠키에 넣을 토큰을 돌려준다."""
     token = new_token()
-    session.add(UserSession(token_hash=token_hash(token), user_id=user.id, expires_at=_now() + session_ttl()))
+    session.add(UserSession(token_hash=token_hash(token), user_id=user.id, expires_at=_now() + min(session_ttl(), session_max())))
     session.execute(delete(UserSession).where(UserSession.expires_at < _now()))  # 만료된 세션 정리
     user.last_login_at = _now()
     session.info["actor"] = user.username
@@ -134,9 +134,18 @@ def start_session(session: Session, user: User) -> str:
 
 
 def user_for_token(session: Session, token: str) -> User | None:
+    """토큰의 사용자. 쓰는 동안 만료가 뒤로 밀리고(슬라이딩), 로그인한 지 SESSION_MAX_DAYS가 지나면 끝난다."""
     row = session.get(UserSession, token_hash(token))
-    if row is None or row.expires_at < _now() or row.user.deleted_at is not None:
+    now = _now()
+    if row is None or row.user.deleted_at is not None:
         return None
+    limit = row.created_at + session_max()
+    if row.expires_at < now or limit <= now:
+        return None
+    target = min(now + session_ttl(), limit)
+    if target - row.expires_at > SLIDE_STEP:
+        row.expires_at = target
+        session.commit()
     return row.user
 
 

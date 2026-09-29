@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from lawca.api.deps import DB, Admin, CurrentUser
 from lawca.api.schemas import LoginRequest, PasswordChange, PasswordReset, UserCreate, UserOut
-from lawca.auth import ROLE_LABELS, SESSION_COOKIE, LoginLimiter, password_problem, session_ttl, verify_password
+from lawca.auth import ROLE_LABELS, SESSION_COOKIE, LoginLimiter, password_problem, session_max, verify_password
 from lawca.config import Settings, get_settings
 from lawca.db import repo
 from lawca.db.models import User
@@ -52,7 +52,7 @@ def login(
     response.set_cookie(
         SESSION_COOKIE,
         token,
-        max_age=int(session_ttl().total_seconds()),
+        max_age=int(session_max().total_seconds()),  # 실제 만료는 서버가 정한다(쓰는 동안 늘어남)
         httponly=True,
         samesite="lax",
         secure=settings.cookie_secure,

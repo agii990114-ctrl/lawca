@@ -72,7 +72,7 @@ cd backend && uv run python scripts/create_user.py admin 관리자 --role admin
 - 감사 기록(audit_log)에 누가 했는지(아이디)가 남습니다. 계정을 삭제해도 기록을 남기려고 행은 두고 로그인만 막습니다. 삭제한 아이디는 다시 쓸 수 있습니다.
 - 비밀번호는 scrypt로 해시해 저장합니다(8자 이상, 글자+숫자). 로그인은 HttpOnly 쿠키 세션(12시간)이고, 같은 아이디로 5번 틀리면 5분 동안 막습니다. 비밀번호를 바꾸거나 초기화하면 그 사용자의 로그인이 모두 끊깁니다.
 - 운영(HTTPS)에서는 `.env`에 `COOKIE_SECURE=true`를 넣습니다.
-- 로그인 유지 시간은 기본 12시간이고, `.env`의 `SESSION_HOURS`(1~720)로 바꿉니다.
+- 로그인은 마지막으로 쓴 뒤 12시간 유지되고 쓰는 동안 계속 늘어납니다(`SESSION_HOURS`). 계속 써도 로그인한 지 7일이 지나면 다시 로그인합니다(`SESSION_MAX_DAYS`).
 
 - Gemini를 쓸 때 서버가 혼잡(503)하거나 사용량 한도(429)에 걸리면 예비 모델을 차례로 시도하고, 화면에 실제로 쓴 모델을 표시합니다.
 - Gemini를 쓰는 동안에는 실제 의뢰인 문서를 올리지 않습니다. 문서가 Gemini API로 전송됩니다. 동작 확인용 가상 문서는 `backend/tests/fixtures/`에 있습니다(`backend/scripts/make_sample_pdf.py`로 생성).

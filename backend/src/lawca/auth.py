@@ -23,11 +23,22 @@ LOCK_SECONDS = 300
 _N, _R, _P = 2**14, 8, 1
 
 
+SLIDE_STEP = timedelta(minutes=5)
+"""세션 만료를 늘리는 최소 간격. 요청마다 DB를 쓰지 않으려고 이만큼 이상 늘어날 때만 고친다."""
+
+
 def session_ttl() -> timedelta:
-    """로그인 유지 시간. 설정(SESSION_HOURS, 기본 12시간)에서 읽는다."""
+    """마지막으로 쓴 뒤 로그인이 유지되는 시간. 설정(SESSION_HOURS, 기본 12시간)에서 읽는다."""
     from lawca.config import get_settings
 
     return timedelta(hours=get_settings().session_hours)
+
+
+def session_max() -> timedelta:
+    """계속 써도 다시 로그인해야 하는 절대 상한. 설정(SESSION_MAX_DAYS, 기본 7일)에서 읽는다."""
+    from lawca.config import get_settings
+
+    return timedelta(days=get_settings().session_max_days)
 
 
 def hash_password(password: str) -> str:
