@@ -61,6 +61,17 @@ function Input({
       <span className="question-label">{field.label}</span>
       {control}
       {field.help && <span className="muted">{field.help}</span>}
+      {!disabled && field.suggestions && (
+        <span className="suggestions">
+          <span className="muted small-note">예전에 검토를 마친 초안의 문구 (누르면 채워집니다)</span>
+          {field.suggestions.map((s) => (
+            <button key={s.text} type="button" className="secondary small suggestion" title={s.text} onClick={() => onChange(s.text)}>
+              {s.text.length > 60 ? `${s.text.slice(0, 60)}…` : s.text}
+              <span className="muted small-note"> · {s.case_number || '사건 없음'} · {s.when}</span>
+            </button>
+          ))}
+        </span>
+      )}
     </label>
   )
 }

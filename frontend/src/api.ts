@@ -89,6 +89,7 @@ export interface QuestionField {
   default: string | null
   allow_later: boolean
   help: string | null
+  suggestions?: { text: string; case_number: string; when: string }[]
 }
 
 export interface QuestionCardData {

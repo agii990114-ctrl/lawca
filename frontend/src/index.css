@@ -2765,3 +2765,16 @@ button.primary.small {
     min-height: 0;
   }
 }
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+  margin-top: 4px;
+}
+
+.suggestion {
+  text-align: left;
+  white-space: normal;
+}

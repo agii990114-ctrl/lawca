@@ -282,3 +282,27 @@ def test_draft_is_indexed_in_library(client, case_ready):  # noqa: F811
     assert doc["title"] == "확정증명원 신청서_2026가단51234_초안" and doc["case_number"] == "2026가단51234"
     hits = client.get("/api/library/search", params={"q": "확정되었음을 증명"}).json()["hits"]
     assert hits and hits[0]["doc"]["kind"] == "draft"
+
+
+def test_question_suggests_values_from_reviewed_drafts_only(db):
+    from lawca.agent.draft import build_question
+    from lawca.db import repo
+
+    def add(session, inquiry, reviewed):
+        file = repo.save_file(session, "a.docx", inquiry.encode(), mime="application/octet-stream")
+        draft = repo.save_draft(session, case=None, form_id="fact_inquiry", file=file,
+                                values={"inquiry_items": inquiry}, blanks=[], job_id=None)
+        if reviewed:
+            repo.review_draft(session, draft)
+
+    with db() as session:
+        session.info["actor"] = "lawyer1"
+        add(session, "검토 전 문구", reviewed=False)
+        add(session, "2022. 1.부터 2023. 12.까지의 거래내역", reviewed=True)
+        add(session, "2022. 1.부터 2023. 12.까지의 거래내역", reviewed=True)  # 같은 값은 한 번만
+        session.commit()
+        draft = {"form_id": "fact_inquiry", "case_resolved": True, "case_number": None, "values": {}, "errors": []}
+        question = build_question(draft, session)
+        field = next(f for f in question["fields"] if f["key"] == "inquiry_items")
+        assert [s["text"] for s in field["suggestions"]] == ["2022. 1.부터 2023. 12.까지의 거래내역"]
+        assert all("suggestions" not in f for f in question["fields"] if f["key"] != "inquiry_items")

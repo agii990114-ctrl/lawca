@@ -15,12 +15,13 @@ from datetime import date
 from typing import Any
 
 from pydantic import BaseModel, Field as PydanticField
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from lawca.agent import brief_flow
 from lawca.agent.llm import ChatModel, Turn, with_fallback
 from lawca.db import repo
-from lawca.db.models import Case
+from lawca.db.models import Case, Draft
 from lawca.extraction.gemini import ExtractionError, ModelUnavailableError
 from lawca.forms import (
     LATER,
@@ -124,6 +125,37 @@ def parse_request(models: list[ChatModel], request: str, history: list[Turn], se
     return prepare(draft, session, today)
 
 
+SUGGESTIONS = 3
+
+
+def past_values(session: Session, form: Form, keys: list[str]) -> dict[str, list[dict[str, str]]]:
+    """같은 서식으로 변호사가 검토를 마쳤거나 최종본을 올린 초안에 입력됐던 값. 항목마다 최근 것부터 서로 다른 값 몇 개.
+    검토 전 초안의 값은 제안하지 않는다(틀렸을 수 있다)."""
+    if not keys:
+        return {}
+    query = (
+        select(Draft)
+        .where(Draft.form_id == form.id, or_(Draft.reviewed_by.isnot(None), Draft.final_file_id.isnot(None)))
+        .options(selectinload(Draft.case))
+        .order_by(Draft.created_at.desc())
+        .limit(50)
+    )
+    found: dict[str, list[dict[str, str]]] = {key: [] for key in keys}
+    for draft in session.scalars(query):
+        for key in keys:
+            text = str((draft.values or {}).get(key) or "").strip()
+            if not text or text == LATER or any(s["text"] == text for s in found[key]) or len(found[key]) >= SUGGESTIONS:
+                continue
+            found[key].append(
+                {
+                    "text": text,
+                    "case_number": draft.case.case_number if draft.case else "",
+                    "when": draft.created_at.date().isoformat(),
+                }
+            )
+    return {k: v for k, v in found.items() if v}
+
+
 def build_question(draft: dict[str, Any], session: Session) -> dict[str, Any] | None:
     """물어볼 것이 없으면 None."""
     forms = load_forms()
@@ -153,11 +185,17 @@ def build_question(draft: dict[str, Any], session: Session) -> dict[str, Any] | 
         missing = [f for f in missing if f.key != "notes"]  # 본문 초안은 변호사만 받는다
     if not missing and not draft.get("errors"):
         return None
+    fields = question_fields(form, missing, draft["values"])
+    if form.id != "brief":  # 준비서면 메모는 사건마다 달라 예전 값을 제안하지 않는다(자료실 RAG가 맡는다)
+        past = past_values(session, form, [f.key for f in missing if f.type in ("text", "textarea")])
+        for item in fields:
+            if past.get(item["key"]):
+                item["suggestions"] = past[item["key"]]
     return {
         "stage": "fields",
         "title": f"{form.name}에 필요한 정보",
         "message": "사건 기록에서 찾지 못한 항목입니다. 입력하면 이어서 초안을 만듭니다.",
-        "fields": question_fields(form, missing, draft["values"]),
+        "fields": fields,
         "errors": draft.get("errors", []),
     }
 
