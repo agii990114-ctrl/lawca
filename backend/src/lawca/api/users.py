@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from lawca.api.deps import DB, Admin, CurrentUser
 from lawca.api.schemas import LoginRequest, PasswordChange, PasswordReset, UserCreate, UserOut
-from lawca.auth import ROLE_LABELS, SESSION_COOKIE, SESSION_TTL, LoginLimiter, password_problem, verify_password
+from lawca.auth import ROLE_LABELS, SESSION_COOKIE, LoginLimiter, password_problem, session_ttl, verify_password
 from lawca.config import Settings, get_settings
 from lawca.db import repo
 from lawca.db.models import User
@@ -52,7 +52,7 @@ def login(
     response.set_cookie(
         SESSION_COOKIE,
         token,
-        max_age=int(SESSION_TTL.total_seconds()),
+        max_age=int(session_ttl().total_seconds()),
         httponly=True,
         samesite="lax",
         secure=settings.cookie_secure,

@@ -199,3 +199,18 @@ def test_only_lawyers_review_drafts(client, db):  # noqa: F811
     login(client, "lawyer1")
     body = client.post(f"/api/drafts/{draft_id}/review").json()
     assert body["reviewed_by"] == "lawyer1" and body["reviewed_at"]
+
+
+def test_session_lifetime_follows_the_setting(anon, db, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from lawca.config import get_settings
+    from lawca.db.models import UserSession
+
+    monkeypatch.setattr(get_settings(), "session_hours", 2)
+    make_user(db, "worker1", "clerk")
+    response = login(anon, "worker1")
+    assert "Max-Age=7200" in response.headers["set-cookie"]  # 쿠키 수명
+    with db() as session:
+        expires = session.scalars(select(UserSession)).one().expires_at
+    assert timedelta(hours=1, minutes=59) < expires - datetime.now(UTC) <= timedelta(hours=2)  # 서버가 정한 만료

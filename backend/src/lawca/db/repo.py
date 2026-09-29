@@ -15,7 +15,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from lawca.api.schemas import DocumentOut
-from lawca.auth import SESSION_TTL, hash_password, new_token, token_hash, verify_password
+from lawca.auth import hash_password, new_token, session_ttl, token_hash, verify_password
 from lawca.db.models import (
     AuditLog,
     Case,
@@ -124,7 +124,7 @@ _DUMMY_HASH = hash_password("lawca-dummy-password-1")
 def start_session(session: Session, user: User) -> str:
     """로그인 세션을 만들고 쿠키에 넣을 토큰을 돌려준다."""
     token = new_token()
-    session.add(UserSession(token_hash=token_hash(token), user_id=user.id, expires_at=_now() + SESSION_TTL))
+    session.add(UserSession(token_hash=token_hash(token), user_id=user.id, expires_at=_now() + session_ttl()))
     session.execute(delete(UserSession).where(UserSession.expires_at < _now()))  # 만료된 세션 정리
     user.last_login_at = _now()
     session.info["actor"] = user.username

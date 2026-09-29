@@ -16,12 +16,18 @@ from datetime import timedelta
 
 ROLE_LABELS = {"clerk": "사무원", "lawyer": "변호사", "admin": "관리자"}
 SESSION_COOKIE = "lawca_session"
-SESSION_TTL = timedelta(hours=12)
 MIN_PASSWORD_LENGTH = 8
 MAX_FAILURES = 5
 LOCK_SECONDS = 300
 
 _N, _R, _P = 2**14, 8, 1
+
+
+def session_ttl() -> timedelta:
+    """로그인 유지 시간. 설정(SESSION_HOURS, 기본 12시간)에서 읽는다."""
+    from lawca.config import get_settings
+
+    return timedelta(hours=get_settings().session_hours)
 
 
 def hash_password(password: str) -> str:

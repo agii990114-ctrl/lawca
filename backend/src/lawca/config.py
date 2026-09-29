@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     # 국가법령정보센터 Open API 인증키(OC). 준비서면의 판례 후보 찾기에 쓴다.
     law_api_key: str | None = Field(default=None, validation_alias=AliasChoices("LAW_API", "LAW_OC"))
     embeddings_enabled: bool = Field(default=True, validation_alias="EMBEDDINGS_ENABLED")
+    # 로그인 유지 시간(시간). 이 시간이 지나면 다시 로그인한다.
+    session_hours: int = Field(default=12, ge=1, le=720, validation_alias="SESSION_HOURS")
     # 로그인 쿠키를 HTTPS에서만 보낸다. 운영(HTTPS)에서는 켠다.
     cookie_secure: bool = Field(default=False, validation_alias="COOKIE_SECURE")
     # docker-compose.yml의 개발용 PostgreSQL. 운영에서는 DATABASE_URL로 바꾼다.
