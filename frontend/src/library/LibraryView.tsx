@@ -63,7 +63,7 @@ function Upload({ onUploaded }: { onUploaded: (doc: LibraryDoc) => void }) {
       <div className="user-form-grid">
         <label>
           파일
-          <input ref={input} type="file" accept=".pdf,.docx,.txt,.md" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required />
+          <input ref={input} type="file" accept=".pdf,.docx,.hwpx,.txt,.md" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required />
         </label>
         <label>
           종류

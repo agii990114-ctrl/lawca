@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from lawca.agent.llm import TextDelta, ToolCall
 from lawca.api.app import app, get_extractor_factory
 from lawca.api.embedding import get_embedder_factory
-from lawca.library import UnsupportedLibraryFile, chunk_pages, detect_mime
+from lawca.library import HWPX_MIME, UnsupportedLibraryFile, chunk_pages, detect_mime, extract_pages
 from tests.conftest import login, make_user
 from tests.fakes import FakeChatModel, FakeEmbedder
 from tests.test_agent import use_models
@@ -261,3 +261,30 @@ def test_references_on_question_and_draft_cards(client, two_cases):  # noqa: F81
 
 def test_references_are_empty_without_library(client, two_cases):  # noqa: F811
     assert make_draft(client)["references"] == []
+
+
+def hwpx_bytes(*paragraphs: str) -> bytes:
+    """본문만 있는 최소한의 HWPX(압축 XML)."""
+    import zipfile
+
+    body = "".join(f"<hp:p><hp:run><hp:t>{p}</hp:t></hp:run></hp:p>" for p in paragraphs)
+    xml = f'<?xml version="1.0" encoding="UTF-8"?><hs:sec xmlns:hs="urn:s" xmlns:hp="urn:p">{body}</hs:sec>'
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w") as z:
+        z.writestr("mimetype", "application/hwp+zip")
+        z.writestr("Contents/section0.xml", xml)
+    return out.getvalue()
+
+
+def test_hwpx_is_read_and_searchable_and_old_hwp_is_explained(client):  # noqa: F811
+    data = hwpx_bytes("준비서면", "피고는 이체 사실을 인정하였습니다.")
+    assert detect_mime("서면.hwpx", data) == HWPX_MIME
+    assert extract_pages(data, HWPX_MIME) == ["준비서면\n피고는 이체 사실을 인정하였습니다."]
+    upload = client.post("/api/library", data={"title": "한글 서면", "kind": "filing"},
+                         files={"file": ("서면.hwpx", data, "application/octet-stream")})
+    assert upload.status_code == 201
+    found = search(client, "이체 사실을 인정")
+    assert any(h["doc"]["title"] == "한글 서면" for h in found["hits"])
+    old = client.post("/api/library", data={"title": "옛 한글", "kind": "filing"},
+                      files={"file": ("옛.hwp", b"\xd0\xcf\x11\xe0", "application/octet-stream")})
+    assert old.status_code == 415 and "예전 형식 HWP" in old.text
