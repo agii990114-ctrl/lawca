@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from lawca.agent.llm import ChatModel, Turn
 
-Label = Literal["query", "draft", "out_of_scope", "help"]
+Label = Literal["query", "precedent", "draft", "out_of_scope", "help"]
 
 ROUTER_PROMPT = """\
 당신은 법무법인 사무원을 돕는 업무 도구의 요청 분류기입니다. 사용자의 마지막 요청을 작업 목록으로 나눕니다.
@@ -16,6 +16,8 @@ ROUTER_PROMPT = """\
 라벨
 - query: 저장된 기한·사건·문서를 조회하거나, 자료실에서 과거 서면·서식·문서를 찾거나, 송달일과 기간으로 만료일을 계산해 달라는 요청.
   예: "이번 주 기한 알려줘", "홍길동 사건 찾아줘", "2026가단51234 기한은?", "9월 15일 송달이면 항소기한은?"
+- precedent: 대법원 판례를 찾아 달라는 요청. request에는 쟁점만 법률 용어로 적습니다(사람 이름·금액·날짜·사건번호는 뺍니다).
+  예: "채무 승인 소멸시효 중단 판례 찾아줘" → request "채무 승인에 의한 소멸시효 중단"
 - draft: 서식이나 서면을 만들거나 고쳐 달라는 요청. 예: "확정증명원 신청서 만들어 줘", "주소보정서 써 줘", "집행문 부여 신청해야 해", "준비서면 작성해줘"
   (예전 서면·서식을 "찾아 줘", "보여 줘"는 query다)
 - out_of_scope: 법률 판단·자문 요청. 예: "이길 수 있을까?", "항소하는 게 나을까?", "위자료는 얼마가 적당해?"

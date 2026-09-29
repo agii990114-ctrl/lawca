@@ -25,6 +25,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.config import get_stream_writer
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from lawca.agent import brief_flow
@@ -36,8 +37,10 @@ from lawca.agent.query_agent import run_query
 from lawca.agent.router import route_text
 from lawca.api.schemas import DocumentOut
 from lawca.db import repo
+from lawca.lawapi import LawApiError
 from lawca.library import store as library_store
-from lawca.db.models import File
+from lawca.citations import find as find_citations
+from lawca.db.models import File, Party
 from lawca.extraction.gemini import ExtractionError, Extractor, ModelUnavailableError
 from lawca.extraction.schema import PARTY_FILINGS
 from lawca.extraction.validate import has_text, pdf_text_pages
@@ -64,6 +67,8 @@ class Deps:
     """요청한 사용자의 역할(clerk|lawyer). 준비서면 본문 초안은 변호사만 받는다."""
     make_embedder: Callable[[], Any] = lambda: None
     """자료실 색인·검색에 쓰는 임베딩 모델(없으면 키워드만)."""
+    make_law_api: Callable[[], Any] = lambda: None
+    """국가법령정보센터 클라이언트(키가 없으면 None). 판례 검색에 쓴다."""
 
 
 class ChatState(TypedDict, total=False):
@@ -83,6 +88,7 @@ HELP_TEXT = (
     "- **사건 찾기**: \"홍길동 사건 찾아줘\"\n"
     "- **만료일 계산**: \"9월 15일에 판결문을 받았으면 항소기한은?\"\n"
     "- **서식 작성**: 확정증명원 신청서, 송달증명원 신청서, 주소보정서, 사실조회신청서, 집행문부여 신청서. 예: \"2026가단51234 확정증명원 신청서 만들어 줘\"\n"
+    "- **판례 검색(변호사)**: \"채무 승인 소멸시효 중단 판례 찾아줘\"라고 하면 국가법령정보센터에서 대법원 판례 후보를 찾습니다.\n"
     "- **준비서면 작성**: \"준비서면 작성해줘\"라고 하면 사건을 묻고, 변호사 메모와 자료실의 과거 서면으로 본문 초안을 씁니다(본문은 변호사만 받습니다)."
 )
 
@@ -127,7 +133,7 @@ def route(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
         write({"type": "status", "id": "route", "label": "요청 파악 실패", "state": "error"})
         write({"type": "text", "delta": f"요청을 처리하지 못했습니다. {exc} 잠시 뒤 다시 시도해 주세요."})
         return {"tasks": [], "index": 0}
-    labels = {"query": "조회", "draft": "서식 작성", "out_of_scope": "법률 판단 요청", "help": "안내"}
+    labels = {"query": "조회", "precedent": "판례 검색", "draft": "서식 작성", "out_of_scope": "법률 판단 요청", "help": "안내"}
     summary = ", ".join(labels[t.label] for t in tasks)
     write({"type": "status", "id": "route", "label": f"요청 파악: {summary}", "state": "done"})
     return {"tasks": [t.model_dump() for t in tasks], "index": 0}
@@ -280,6 +286,48 @@ def query(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
     return {"index": state["index"] + 1}
 
 
+# 판례 검색(변호사)
+
+
+def precedent(state: ChatState, config: RunnableConfig) -> dict[str, Any]:
+    """법률 용어만 남겨 국가법령정보센터에서 대법원 판례 후보를 찾는다. 변호사만 쓴다."""
+    write = get_stream_writer()
+    deps = _deps(config)
+    sep = _separator(state)
+    if deps.role != "lawyer":
+        write({"type": "text", "delta": sep + "판례 검색은 변호사 계정에서만 할 수 있습니다. 담당 변호사님께 요청해 주세요."})
+        return {"index": state["index"] + 1}
+    api = deps.make_law_api()
+    if api is None:
+        write({"type": "text", "delta": sep + "국가법령정보센터 키가 없어 판례를 찾을 수 없습니다. 레포 루트 .env에 LAW_API를 넣어 주세요."})
+        return {"index": state["index"] + 1}
+    issue = _task(state)["request"] or state["message"]
+    step = f"precedent-{state['index']}"
+    # 어느 사건의 당사자 이름이든 밖으로 나가는 검색어에 들어가지 않게 한다
+    names = list(deps.session.scalars(select(Party.name).distinct()))
+    write({"type": "status", "id": step, "label": "대법원 판례 찾는 중", "state": "running"})
+    try:
+        found = find_citations(api, issue, [], names, deps.make_embedder())
+    except LawApiError as exc:
+        write({"type": "status", "id": step, "label": "판례 검색 실패", "state": "error"})
+        write({"type": "text", "delta": sep + f"판례를 찾지 못했습니다. {exc}"})
+        return {"index": state["index"] + 1}
+    repo.audit(deps.session, "precedent.search", "chat", deps.job_id or "-", {"query": found.query, "results": len(found.items)})
+    deps.session.commit()
+    write({"type": "status", "id": step, "label": f"판례 후보 {len(found.items)}건", "state": "done"})
+    if found.items:
+        text = (
+            f"국가법령정보센터에서 **{found.query}**(으)로 찾은 대법원 판례 후보 {len(found.items)}건입니다. "
+            "뜻이 가까운 순이며, **원문을 확인한 뒤 인용하세요.**"
+        )
+    else:
+        text = f"**{found.query}**(으)로 관련 대법원 판례를 찾지 못했습니다. 쟁점을 법률 용어로 바꿔 다시 요청해 보세요."
+    write({"type": "text", "delta": sep + text})
+    if found.items:
+        write({"type": "card", "card": {"kind": "precedents", "query": found.query, "items": found.items, "statutes": found.statutes}})
+    return {"index": state["index"] + 1}
+
+
 # 서식 작성
 
 
@@ -414,15 +462,16 @@ def build_graph(checkpointer: Any = None):  # noqa: ANN201
     graph.add_node("route", route)
     graph.add_node("document", document)
     graph.add_node("query", query)
+    graph.add_node("precedent", precedent)
     graph.add_node("draft_parse", draft_parse)
     graph.add_node("draft_ask", draft_ask)
     graph.add_node("draft_render", draft_render)
     graph.add_node("out_of_scope", _fixed(OUT_OF_SCOPE_TEXT))
     graph.add_node("help", _fixed(HELP_TEXT))
-    routes = ["document", "query", "draft_parse", "out_of_scope", "help", END]
+    routes = ["document", "query", "precedent", "draft_parse", "out_of_scope", "help", END]
     graph.add_edge(START, "route")
     graph.add_conditional_edges("route", next_task, routes)
-    for name in ("document", "query", "draft_render", "out_of_scope", "help"):
+    for name in ("document", "query", "precedent", "draft_render", "out_of_scope", "help"):
         graph.add_conditional_edges(name, next_task, routes)
     graph.add_edge("draft_parse", "draft_ask")
     graph.add_conditional_edges("draft_ask", after_ask, ["draft_ask", "draft_render"])

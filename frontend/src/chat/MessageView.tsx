@@ -3,7 +3,7 @@ import { formatTime } from '../format'
 import DocumentCard from './DocumentCard'
 import FileCard from './FileCard'
 import { DraftCard, QuestionCard, type Answer } from './FormCards'
-import { BriefSummaryCard, CaseListCard, DeadlineCalcCard, DeadlineListCard, SearchCard } from './QueryCards'
+import { BriefSummaryCard, CaseListCard, DeadlineCalcCard, DeadlineListCard, PrecedentCard, SearchCard } from './QueryCards'
 import type { Attachment, Message, Step } from './types'
 
 function StepLine({ step }: { step: Step }) {
@@ -110,6 +110,8 @@ export default function MessageView({
               return <DraftCard key={card.draft_id} data={card} />
             case 'search':
               return <SearchCard key={i} query={card.query} items={card.items} onShowLibrary={onShowLibrary} />
+            case 'precedents':
+              return <PrecedentCard key={i} data={card} />
             case 'brief_summary':
               return <BriefSummaryCard key={i} data={card} onShowCase={onShowCase} />
             default:

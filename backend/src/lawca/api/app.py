@@ -22,7 +22,13 @@ from lawca.api.calendar import deadline_details, deadline_title
 from lawca.api.calendar import router as calendar_router
 from lawca.api.chat import answer_summary, chat_events, resume_events
 from lawca.api.deps import DB, CurrentUser, Lawyer, SessionFactory, Worker
-from lawca.api.llm_deps import get_extractor, get_extractor_factory, get_models_factory  # noqa: F401 (테스트가 덮어쓴다)
+from lawca.api.llm_deps import (  # noqa: F401 (테스트가 덮어쓴다)
+    LawApiFactory,
+    get_extractor,
+    get_extractor_factory,
+    get_law_api_factory,
+    get_models_factory,
+)
 from lawca.api.documents_api import router as documents_router
 from lawca.api.embedding import EmbedderFactory
 from lawca.api.library_api import router as library_router
@@ -229,6 +235,7 @@ def _respond(
     actor: str,
     make_embedder: Callable[[], Any] = lambda: None,
     role: str = "clerk",
+    make_law_api: Callable[[], Any] = lambda: None,
 ) -> StreamingResponse:
     """그래프 이벤트를 SSE로 흘려보내고, 끝나면 답변 메시지와 작업(Job) 상태를 저장한다.
 
@@ -257,6 +264,7 @@ def _respond(
                 job_id=job_id,
                 role=role,
                 make_embedder=make_embedder,
+                make_law_api=make_law_api,
             )
             try:
                 for event in make_events(deps):
@@ -298,6 +306,7 @@ def chat(
     make_models: ModelsFactory,
     checkpointer: Checkpointer,
     make_embedder: EmbedderFactory,
+    make_law_api: LawApiFactory,
 ) -> StreamingResponse:
     """사용자 메시지를 저장하고 답변을 SSE로 흘려보낸다. 답변은 끝나거나 중지되면 저장한다."""
     with factory() as session:
@@ -323,6 +332,7 @@ def chat(
         user.username,
         make_embedder,
         user.role,
+        make_law_api,
     )
 
 
@@ -351,6 +361,7 @@ def resume_job(
     make_models: ModelsFactory,
     checkpointer: Checkpointer,
     make_embedder: EmbedderFactory,
+    make_law_api: LawApiFactory,
 ) -> StreamingResponse:
     """되묻기에 답하고 멈춘 곳에서 이어간다. 답은 사용자 메시지로 대화에 남긴다."""
     with factory() as session:
@@ -378,6 +389,7 @@ def resume_job(
         user.username,
         make_embedder,
         user.role,
+        make_law_api,
     )
 
 

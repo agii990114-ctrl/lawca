@@ -62,3 +62,18 @@ def get_law_api(settings: Annotated[Settings, Depends(get_settings)]) -> LawApi:
 
 
 LawApiDep = Annotated[LawApi, Depends(get_law_api)]
+
+
+def get_law_api_factory(settings: Annotated[Settings, Depends(get_settings)]) -> Callable[[], LawApi | None]:
+    """채팅에서 쓰는 판례 검색 클라이언트 공급자. 키가 없으면 None을 준다(채팅 자체는 막지 않는다)."""
+
+    def make() -> LawApi | None:
+        try:
+            return get_law_api(settings)
+        except HTTPException:
+            return None
+
+    return make
+
+
+LawApiFactory = Annotated[Callable[[], LawApi | None], Depends(get_law_api_factory)]

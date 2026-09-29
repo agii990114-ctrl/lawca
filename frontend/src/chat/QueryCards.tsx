@@ -1,4 +1,12 @@
-import { fileUrl, type BriefSummary, type CaseSummary, type DeadlineRecord, type DeadlineResult, type SearchCardItem } from '../api'
+import {
+  fileUrl,
+  type BriefSummary,
+  type CaseSummary,
+  type CitationCandidates,
+  type DeadlineRecord,
+  type DeadlineResult,
+  type SearchCardItem,
+} from '../api'
 import BriefSummaryView from '../cases/BriefSummaryView'
 import { dDay, daysUntil, formatDate } from '../format'
 
@@ -230,5 +238,58 @@ export function BriefSummaryCard({
       </header>
       <BriefSummaryView summary={data} documentId={data.document_id} fileId={data.file_id} caseNumber={data.case_number} />
     </section>
+  )
+}
+
+// 채팅에서 찾은 대법원 판례 후보(변호사 전용). 인용은 원문을 확인한 뒤 직접 한다.
+export function PrecedentCard({ data }: { data: CitationCandidates }) {
+  return (
+    <div className="citation-results">
+      <p className="muted small-note">국가법령정보센터에 보낸 검색어: {data.query} (이름·숫자는 뺐습니다)</p>
+      {data.items.map((item) => (
+        <div key={item.id} className="citation-card">
+          <div className="citation-title">
+            <a href={item.url} target="_blank" rel="noreferrer">
+              {item.citation}
+            </a>
+            <span className="muted small-note">{item.case_name}</span>
+          </div>
+          {item.holdings && <p className="small-note">판시사항: {item.holdings.length > 200 ? `${item.holdings.slice(0, 200)}…` : item.holdings}</p>}
+          {item.holdings.length > 200 && (
+            <details>
+              <summary className="small-note">판시사항 더 보기</summary>
+              <p className="small-note">{item.holdings}</p>
+            </details>
+          )}
+          {item.summary && (
+            <details>
+              <summary className="small-note">판결요지</summary>
+              <p className="small-note">{item.summary}</p>
+            </details>
+          )}
+          {item.references.length > 0 && <p className="muted small-note">참조조문: {item.references.join(', ')}</p>}
+          <button type="button" className="link-button" onClick={() => navigator.clipboard?.writeText(`(${item.citation} 참조)`)}>
+            인용문 복사
+          </button>
+        </div>
+      ))}
+      {data.statutes.length > 0 && (
+        <p className="muted small-note">
+          관련 조문:{' '}
+          {data.statutes.map((st, i) => (
+            <span key={st.reference}>
+              {i > 0 && ', '}
+              {st.url ? (
+                <a href={st.url} target="_blank" rel="noreferrer">
+                  {st.reference}
+                </a>
+              ) : (
+                st.reference
+              )}
+            </span>
+          ))}
+        </p>
+      )}
+    </div>
   )
 }

@@ -126,6 +126,7 @@ export type Card =
   | ({ kind: 'question' } & QuestionCardData)
   | ({ kind: 'draft' } & DraftCardData)
   | { kind: 'search'; query: string; items: SearchCardItem[] }
+  | ({ kind: 'precedents' } & CitationCandidates)
   | ({ kind: 'brief_summary'; document_id: string; document_type: string; file_id: string; filename: string; case_number: string | null } & BriefSummary)
 
 export interface BriefSummary {

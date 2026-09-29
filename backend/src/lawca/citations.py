@@ -28,6 +28,9 @@ MIN_SIMILARITY = 0.45
 """쟁점과 판시사항·판결요지의 코사인 유사도가 이보다 낮으면 관련이 적다고 보고 뺀다(bge-m3 기준, 시험으로 맞춘 값)."""
 
 
+REQUEST_WORDS = re.compile(r"(?:판례|대법원|판결|사례|검색|관련|쟁점|찾아\S*|알려\S*|보여\S*|줘|주세요)[을를은는이가에]?")
+"""채팅으로 "판례 찾아줘"라고 요청할 때 딸려 오는 말. 검색어로 쓰지 않는다."""
+
 NOISE = re.compile(r"(갑|을|병)\s*제?\s*\d+\s*호\s*증(?:\s*의\s*\d+)?|\d[\d,.]*\s*(?:만|억|천)?\s*원?|\d+")
 
 
@@ -49,6 +52,8 @@ def sanitize(keywords: list[str], issue: str, forbidden: list[str]) -> list[str]
             if any(name in word or word in name for name in names):
                 continue
             if re.fullmatch(r"(갑|을|병)(제)?\d*호증?|원고|피고|신청인|피신청인|채권자|채무자", word):
+                continue
+            if REQUEST_WORDS.fullmatch(word):
                 continue
             if word not in words:
                 words.append(word)
